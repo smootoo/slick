@@ -4,6 +4,7 @@ import com.typesafe.slick.testkit.util.{JdbcTestDB, AsyncTest}
 import java.io.{ObjectInputStream, ObjectOutputStream, ByteArrayOutputStream}
 import java.sql.{Blob, Date, Time, Timestamp}
 import java.util.UUID
+import java.time._
 import javax.sql.rowset.serial.SerialBlob
 import org.junit.Assert._
 
@@ -138,6 +139,171 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
 
   def testUUID =
     roundtrip[UUID]("uuid_t1", UUID.randomUUID())
+
+  def testLocalDate = roundtrip[LocalDate]("local_date_t1", LocalDate.now())
+
+  def testLocalTime = {
+    roundtrip[LocalTime](
+      "local_time_hour_greater_than_10",
+      LocalTime.now().withHour(14)
+    )
+  }
+  def testLocalTimeWithHourLesserThan10 = {
+    roundtrip[LocalTime](
+      "local_time_hour_lesser_than_10",
+      LocalTime.now().withHour(5)
+    )
+  }
+
+  def testInstant = {
+    roundtrip[Instant](
+      "instant_t1",
+      LocalDateTime.now(ZoneId.of("UTC")).withHour(15).toInstant(ZoneOffset.of("-01:00"))
+    )
+  }
+  def testInstantWithHourLesserThan10 = {
+    roundtrip[Instant](
+      "instant_with_hour_lesser_than 10",
+      LocalDateTime.now(ZoneId.of("UTC")).withHour(5).toInstant(ZoneOffset.of("-01:00"))
+    )
+  }
+
+  def testLocalDateTimeWithHourLesserThan10 = {
+    roundtrip[LocalDateTime](
+      "local_date_time_hour_lesser_than_10",
+      LocalDateTime.now().withHour(2)
+    )
+  }
+
+  def testLocalDateTimeWithHourGreaterThan10 = {
+    roundtrip[LocalDateTime](
+      "local_date_time_hour_greater_than_10",
+      LocalDateTime.now().withHour(12)
+    )
+  }
+
+  def testOffsetTime = {
+    roundtrip[OffsetTime](
+      s"offset_time_tz_utc",
+      OffsetTime.now(ZoneId.of("UTC")).withHour(15)
+    )
+  }
+  def testOffsetTimeHourLessThan10UTC = {
+    roundtrip[OffsetTime](
+      s"offset_time_tz_utc_hour_less_than_10",
+      OffsetTime.now(ZoneId.of("UTC")).withHour(5)
+    )
+  }
+  def testOffsetTimeNegativeOffsetGreaterThan10 = {
+    // Offset -> -11:00 / -11:00
+    roundtrip[OffsetTime](
+      s"offset_time_tz_negative_greater_10",
+      OffsetTime.now(ZoneId.of("Pacific/Samoa")).withHour(15)
+    )
+  }
+  def testOffsetTimeNegativeOffsetLessThan10 = {
+    // Offset -> -3:00 / -3:00
+    roundtrip[OffsetTime](
+      s"offset_time_tz_negative_less_10",
+      OffsetTime.now(ZoneId.of("Antarctica/Rothera")).withHour(15)
+    )
+  }
+  def testOffsetTimePositiveOffsetGreaterThan10 = {
+    // Offset -> +12:00 / +12:00
+    roundtrip[OffsetTime](
+      s"offset_time_tz_positive_greater_10",
+      OffsetTime.now(ZoneId.of("Pacific/Wallis")).withHour(15)
+    )
+  }
+  def testOffsetTimePositiveOffsetLessThan10 = {
+    // Offset -> +2:00 / +2:00
+    roundtrip[OffsetTime](
+      s"offset_time_tz_positive_less_10",
+      OffsetTime.now(ZoneId.of("Africa/Johannesburg")).withHour(15)
+    )
+  }
+
+  def testOffsetDateTime = {
+    roundtrip[OffsetDateTime](
+      s"offset_date_time_tz_utc",
+      OffsetDateTime.now(ZoneId.of("UTC")).withHour(15)
+    )
+  }
+  def testOffsetDateTimeWithHourLesserThan10 = {
+    roundtrip[OffsetDateTime](
+      s"offset_date_time_hour_lesser_than_10",
+      OffsetDateTime.now(ZoneId.of("UTC")).withHour(5)
+    )
+  }
+  def testOffsetDateTimeNegativeGreaterThan10 = {
+    // Offset -> -11:00 / -11:00
+    roundtrip[OffsetDateTime](
+      s"offset_date_time_tz_negative_greater_10",
+      OffsetDateTime.now(ZoneId.of("Pacific/Samoa")).withHour(15)
+    )
+  }
+  def testOffsetDateTimeNegativeLessThan10 = {
+    // Offset -> -3:00 / -3:00
+    roundtrip[OffsetDateTime](
+      s"offset_date_time_tz_negative_less_10",
+      OffsetDateTime.now(ZoneId.of("Antarctica/Rothera")).withHour(15)
+    )
+  }
+  def testOffsetDateTimePositiveGreaterThan10 = {
+    // Offset -> +12:00 / +12:00
+    roundtrip[OffsetDateTime](
+      s"offset_date_time_tz_positive_greater_10",
+      OffsetDateTime.now(ZoneId.of("Pacific/Wallis")).withHour(15)
+    )
+  }
+  def testOffsetDateTimePositiveLessThan10 = {
+    // Offset -> +2:00 / +2:00
+    roundtrip[OffsetDateTime](
+      s"offset_date_time_tz_positive_less_10",
+      OffsetDateTime.now(ZoneId.of("Africa/Johannesburg")).withHour(15)
+    )
+  }
+
+  def testZonedDateTime = {
+    roundtrip[ZonedDateTime](
+      s"zoned_date_time_tz_utc",
+      ZonedDateTime.now(ZoneId.of("UTC")).withHour(15)
+    )
+  }
+  def testZonedDateTimeWithHourLesserThan10 = {
+    roundtrip[ZonedDateTime](
+      s"zoned_date_time_hour_lesser_than_10",
+      ZonedDateTime.now(ZoneId.of("UTC")).withHour(5)
+    )
+  }
+  def testZonedDateTimeNegativeGreaterThan10 = {
+    // Offset -> -11:00 / -11:00
+    roundtrip[ZonedDateTime](
+      s"zoned_date_time_tz_negative_greater_10",
+      ZonedDateTime.now(ZoneId.of("Pacific/Samoa")).withHour(15)
+    )
+  }
+  def testZonedDateTimeNegativeLessThan10 = {
+    // Offset -> -3:00 / -3:00
+    roundtrip[ZonedDateTime](
+      s"zoned_date_time_tz_negative_less_10",
+      ZonedDateTime.now(ZoneId.of("Antarctica/Rothera")).withHour(15)
+    )
+  }
+  def testZonedDateTimePositiveGreaterThan10 = {
+    // Offset -> +12:00 / +12:00
+    roundtrip[ZonedDateTime](
+      s"zoned_date_time_tz_positive_greater_10",
+      ZonedDateTime.now(ZoneId.of("Pacific/Wallis")).withHour(15)
+    )
+  }
+  def testZonedDateTimePositiveLessThan10 = {
+    // Offset -> +2:00 / +2:00
+    roundtrip[ZonedDateTime](
+      s"zoned_date_time_tz_positive_less_10",
+      ZonedDateTime.now(ZoneId.of("Africa/Johannesburg")).withHour(15)
+    )
+  }
 
   def testOverrideIdentityType = {
     class T1(tag: Tag) extends Table[Int](tag, "t1") {

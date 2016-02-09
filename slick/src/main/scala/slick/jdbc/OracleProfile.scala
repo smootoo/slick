@@ -1,5 +1,7 @@
 package slick.jdbc
 
+import java.time.format.DateTimeFormatter
+import java.time.{ZonedDateTime, OffsetDateTime}
 import java.util.UUID
 
 import scala.concurrent.ExecutionContext
@@ -263,6 +265,8 @@ trait OracleProfile extends JdbcProfile {
     override val stringJdbcType = new StringJdbcType
     override val timeJdbcType = new TimeJdbcType
     override val uuidJdbcType = new UUIDJdbcType
+    override val offsetDateTimeType = new OffsetDateTimeJdbcType
+    override val zonedDateType = new ZonedDateTimeJdbcType
 
     /* Oracle does not have a proper BOOLEAN type. The suggested workaround is
      * a constrained CHAR with constants 1 and 0 for TRUE and FALSE. */
@@ -331,6 +335,40 @@ trait OracleProfile extends JdbcProfile {
         s"hextoraw('$hex')"
       }
       override def hasLiteralForm = true
+    }
+
+    class OffsetDateTimeJdbcType extends super.OffsetDateTimeJdbcType {
+      private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS x")
+      private[this] def serializeTime(v : OffsetDateTime) : String = formatter.format(v)
+      override def sqlType = java.sql.Types.OTHER
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
+      override def setValue(v: OffsetDateTime, p: PreparedStatement, idx: Int) = {
+        p.setString(idx, serializeTime(v))
+      }
+      override def updateValue(v: OffsetDateTime, r: ResultSet, idx: Int) = {
+        r.updateString(idx, serializeTime(v))
+      }
+      override def getValue(r: ResultSet, idx: Int): OffsetDateTime = {
+        OffsetDateTime.parse(r.getString(idx), formatter)
+      }
+      override def valueToSQLLiteral(value: OffsetDateTime) = s"{ts '${serializeTime(value)}'}"
+    }
+
+    class ZonedDateTimeJdbcType extends super.ZonedDateTimeJdbcType {
+      private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS z")
+      private[this] def serializeTime(v : ZonedDateTime) : String = formatter.format(v)
+      override def sqlType = java.sql.Types.OTHER
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
+      override def setValue(v: ZonedDateTime, p: PreparedStatement, idx: Int) = {
+        p.setString(idx, serializeTime(v))
+      }
+      override def updateValue(v: ZonedDateTime, r: ResultSet, idx: Int) = {
+        r.updateString(idx, serializeTime(v))
+      }
+      override def getValue(r: ResultSet, idx: Int): ZonedDateTime = {
+        ZonedDateTime.parse(r.getString(idx), formatter)
+      }
+      override def valueToSQLLiteral(value: ZonedDateTime) = s"{ts '${serializeTime(value)}'}"
     }
   }
 
