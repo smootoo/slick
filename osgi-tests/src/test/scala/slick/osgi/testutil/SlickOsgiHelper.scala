@@ -13,8 +13,11 @@ trait SlickOsgiHelper {
   private def makeBundle(file: File): exam.Option = 
     bundle(file.toURI.toASCIIString)
 
-  private def allBundleFiles: Array[File] =
-    Option(sys.props("slick.osgi.bundlepath")).getOrElse("").split(":").map(new File(_))
+  private def allBundleFiles: Array[File] = {
+    val paths = Option(sys.props("slick.osgi.bundlepath")).getOrElse("")
+    println(s"Bundle paths $paths")
+    paths.split("@").map(new File(_))
+  }
 
   def standardOptions: Array[exam.Option] =
     allBundleFiles.map(makeBundle) ++ Array[exam.Option](junitBundles())

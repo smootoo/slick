@@ -18,7 +18,7 @@ object HikariCPJdbcDataSource extends JdbcDataSourceFactory {
 
   def forConfig(c: Config, driver: Driver, name: String, classLoader: ClassLoader): HikariCPJdbcDataSource = {
     if(driver ne null)
-      throw new SlickException("An explicit Driver object is not supported by HikariCPJdbcDataSource")
+      println(s"An explicit Driver object ($driver) is not supported by HikariCPJdbcDataSource")
     val hconf = new HikariConfig()
 
     // Connection settings
