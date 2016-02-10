@@ -1,0 +1,9 @@
+That hard part of putting this PR together was trying to make sure the builds would be stable. We are stressing the build agents with both the compile and the testkit tests alongside db instances. The way things are configured in this PR, the travis builds take less that 30 mins and the appveyor builds, less that 40 mins. I had to just do sbt testAll (i.e. not sbt +testAll) on appveyor, otherwise this builds would get too near the 60min limit that a build has before it fails. Currently travis agents have 8Gb and appveyor agents only have 1.7Gb.
+
+If anyone sees any intermittent failures, let me know, an I'll see what I can do to make the build more resilient.
+
+The use of Hikari for the Oracle test on travis is because Hikari handles the limited resources available to the docker image in a travis environment well. i.e. not running out of connections and retrying SQLExceptions where possible.
+
+Getting hold of the non-free drivers is one of the tricky problems to solve. The DB2 driver can just be copied from the docker image. For the MS SQL and Oracle driver, I've put a git submodule with encrypted copies of them in the travis directory. I'm open to any better suggestions that anyone can think of. The advantages that this approach has
+Being in a submodule means that just checking out the slick repo wont get the encrypted jars. So there is no bloat on the slick repo size.
+The way that the script unencrypts them, means it will work with PRs (putting a secret in an environment variable doesn't work on PR builds).

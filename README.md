@@ -23,6 +23,15 @@ The following database systems are directly supported for type-safe queries:
 - IBM DB2 LUW 10
 - Microsoft SQL Server 2008
 
+|Database|JDBC Driver|Build status|
+|--------|-----------|-----------:|
+|SQLServer 2008, 2012, 2014|[jtds:1.2.8](http://sourceforge.net/projects/jtds/files/jtds/) and [msjdbc:4.2](https://www.microsoft.com/en-gb/download/details.aspx?id=11774)|[![Build status](https://ci.appveyor.com/api/projects/status/mdrfd7o7067c5vcm?svg=true&branch=travis)](https://ci.appveyor.com/project/smootoo/slick)|
+|Oracle 11g|[ojdbc7:12.1.0.2](http://www.oracle.com/technetwork/database/features/jdbc/index-091264.html)|[![Build Status](https://travis-ci.org/smootoo/slick.svg?branch=travis)](https://travis-ci.org/smootoo/slick)|
+|DB2 10.5|[db2jcc4:4.19.20](http://www-01.ibm.com/support/docview.wss?uid=swg21363866)|[![Build Status](https://travis-ci.org/smootoo/slick.svg?branch=travis)](https://travis-ci.org/smootoo/slick)|
+|MySQL||[![Build Status](https://travis-ci.org/smootoo/slick.svg?branch=travis)](https://travis-ci.org/smootoo/slick)|
+|PostgreSQL||[![Build Status](https://travis-ci.org/smootoo/slick.svg?branch=travis)](https://travis-ci.org/smootoo/slick)|
+
+
 Accessing other database systems is possible, with a reduced feature set.
 
 The [manual and scaladocs](http://slick.typesafe.com/docs/) for Slick can be
