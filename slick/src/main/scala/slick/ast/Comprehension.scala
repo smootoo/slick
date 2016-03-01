@@ -9,7 +9,9 @@ final case class Comprehension(sym: TermSymbol, from: Node, select: Node, where:
                                groupBy: Option[Node] = None, orderBy: ConstArray[(Node, Ordering)] = ConstArray.empty,
                                having: Option[Node] = None,
                                distinct: Option[Node] = None,
-                               fetch: Option[Node] = None, offset: Option[Node] = None) extends DefNode {
+                               fetch: Option[Node] = None,
+                               offset: Option[Node] = None,
+                               forUpdate: Boolean = false) extends DefNode {
   type Self = Comprehension
   lazy val children = (ConstArray.newBuilder() + from + select ++ where ++ groupBy ++ orderBy.map(_._1) ++ having ++ distinct ++ fetch ++ offset).result
   override def childNames =
@@ -56,7 +58,7 @@ final case class Comprehension(sym: TermSymbol, from: Node, select: Node, where:
     // Assign type to "from" Node and compute the resulting scope
     val f2 = from.infer(scope, typeChildren)
     val genScope = scope + (sym -> f2.nodeType.asCollectionType.elementType)
-    // Assign types to "select", "where", "groupBy", "orderBy", "having", "distinct", "fetch" and "offset" Nodes
+    // Assign types to "select", "where", "groupBy", "orderBy", "having", "distinct", "fetch", "offset" and "forUpdate" Nodes
     val s2 = select.infer(genScope, typeChildren)
     val w2 = mapOrNone(where)(_.infer(genScope, typeChildren))
     val g2 = mapOrNone(groupBy)(_.infer(genScope, typeChildren))
