@@ -2,6 +2,7 @@ package slick.jdbc
 
 import scala.concurrent.ExecutionContext
 
+import java.time._
 import java.sql.{Timestamp, Date, Time, ResultSet}
 
 import com.typesafe.config.Config
@@ -229,6 +230,8 @@ trait SQLServerProfile extends JdbcProfile {
     override val dateJdbcType = new DateJdbcType
     override val timeJdbcType = new TimeJdbcType
     override val timestampJdbcType = new TimestampJdbcType
+    override val localDateTimeType = new LocalDateTimeJdbcType
+    override val instantType = new InstantJdbcType
     override val uuidJdbcType = new UUIDJdbcType {
       override def sqlTypeName(sym: Option[FieldSymbol]) = "UNIQUEIDENTIFIER"
     }
@@ -263,6 +266,23 @@ trait SQLServerProfile extends JdbcProfile {
        * want here is DATETIME. */
       override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIME"
       override def valueToSQLLiteral(value: Timestamp) = "(convert(datetime, {ts '" + value + "'}))"
+    }
+    class LocalDateTimeJdbcType extends super.LocalDateTimeJdbcType {
+      /* TIMESTAMP in SQL Server is a data type for sequence numbers. What we
+       * want here is DATETIME. */
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIME"
+      override def valueToSQLLiteral(value: LocalDateTime) = s"(convert(datetime, {ts '$value'}))"
+    }
+    class InstantJdbcType extends super.InstantJdbcType {
+      /* TIMESTAMP in SQL Server is a data type for sequence numbers. What we
+       * want here is DATETIME. */
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIME"
+      override def getValue(r: ResultSet, idx: Int): Instant = {
+        r.getTimestamp(idx).toLocalDateTime.toInstant(ZoneOffset.UTC)
+      }
+      override def valueToSQLLiteral(value: Instant) = {
+        s"(convert(datetime, {ts '${value.toString.dropRight(1)}'}))"
+      }
     }
     /* SQL Server's TINYINT is unsigned, so we use SMALLINT instead to store a signed byte value.
      * The JDBC driver also does not treat signed values correctly when reading bytes from result
