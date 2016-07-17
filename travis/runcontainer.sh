@@ -62,7 +62,7 @@ do
       echo "Container startup failed. Retry ..."
       break
     elif [ "${CONTAINER_NAME}" = "db2slick" ]; then
-      db2HackConnection
+      echo db2HackConnection
     fi
   done
   if [ "${LAST_LINE}" = "${SUCCESS_TOKEN}" ]; then
