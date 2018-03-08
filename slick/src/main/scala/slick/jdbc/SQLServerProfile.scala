@@ -399,7 +399,7 @@ trait SQLServerProfile extends JdbcProfile {
           case null =>
             "NULL"
           case _ =>
-            s"(convert(DATETIMEOFFSET(6), '${formatter.format(value)}')"
+            s"(convert(DATETIMEOFFSET(6), {ts '${formatter.format(value)}'}))"
         }
       }
     }
