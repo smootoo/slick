@@ -312,7 +312,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     * The generated test [[LocalDateTime]] will adapt to the database system being used.
     * If the SQL server driver `jtds` is used, there would be a 3 millisecond rounding, so
     * this method will generate a [[LocalDateTime]], using [[LocalDateTime#now]] whose milliseconds
-    * ends either 0, 3 or 7. It will just return [[LocalDateTime#now]] if any other driver or database
+    * ends either 0. It will just return [[LocalDateTime#now]] if any other driver or database
     * is being used.
     *
     * For more information about the MsSQL issue: https://sourceforge.net/p/jtds/feature-requests/73/
@@ -320,13 +320,8 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
   private[this] def generateTestLocalDateTime() : LocalDateTime = {
     if (tdb.confName.contains("jtds")) {
       val now = Instant.now
-      val offset = now.get(ChronoField.MILLI_OF_SECOND) % 10 match {
-        case (1|4|8) => -1
-        case (2|5|9) => -2
-        case 6 => 1
-        case _ => 0
-      }
-      LocalDateTime.ofInstant(now.plusMillis(offset), ZoneOffset.UTC)
+      val offset = now.get(ChronoField.MILLI_OF_SECOND) % 10
+      LocalDateTime.ofInstant(now.plusMillis(-offset), ZoneOffset.UTC)
     } else
       LocalDateTime.now(ZoneOffset.UTC)
   }
