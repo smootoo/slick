@@ -372,8 +372,6 @@ trait SQLServerProfile extends JdbcProfile {
       }
     }
     class OffsetDateTimeJdbcType extends super.OffsetDateTimeJdbcType {
-      override def sqlType = java.sql.Types.OTHER
-      override val hasLiteralForm: Boolean = false
       override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIMEOFFSET(6)"
 
       private[this] val formatter: DateTimeFormatter = {
@@ -392,14 +390,6 @@ trait SQLServerProfile extends JdbcProfile {
             null
           case timestamp =>
             OffsetDateTime.parse(timestamp, formatter)
-        }
-      }
-      override def valueToSQLLiteral(value: OffsetDateTime) = {
-        value match {
-          case null =>
-            "NULL"
-          case _ =>
-            s"(convert(DATETIMEOFFSET(6), {ts '${formatter.format(value)}'}))"
         }
       }
     }
