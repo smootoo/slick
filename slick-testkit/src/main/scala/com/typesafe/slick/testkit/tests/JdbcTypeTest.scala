@@ -116,7 +116,9 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
       t1.filter(_.data === v).map(_.id).result.headOption.map(_ shouldBe Some(1)),
       t1.filter(_.data =!= v).map(_.id).result.headOption.map(_ shouldBe None),
       t1.filter(_.data === v.bind).map(_.id).result.headOption.map(_ shouldBe Some(1)),
-      t1.filter(_.data =!= v.bind).map(_.id).result.headOption.map(_ shouldBe None)
+      t1.filter(_.data =!= v.bind).map(_.id).result.headOption.map(_ shouldBe None),
+      t1.filter(_.id === 1).map(_.data).update(v),
+      t1.map(_.data).result.head.map(_ shouldBe v)
     )
   }
 

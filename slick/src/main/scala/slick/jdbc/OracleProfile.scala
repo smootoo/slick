@@ -70,7 +70,6 @@ trait OracleProfile extends JdbcProfile {
     - JdbcCapabilities.booleanMetaData
     - JdbcCapabilities.distinguishesIntTypes
     - JdbcCapabilities.supportsByte
-    - JdbcCapabilities.javaTime
   )
 
   override protected lazy val useServerSideUpsert = true
@@ -361,6 +360,7 @@ trait OracleProfile extends JdbcProfile {
         Timestamp.valueOf(LocalDateTime.of(LocalDate.MIN, localTime))
       }
       override def sqlType = java.sql.Types.TIMESTAMP
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6)"
 
       override def getValue(r: ResultSet, idx: Int) : LocalTime = {
         r.getTimestamp(idx) match {
@@ -369,33 +369,33 @@ trait OracleProfile extends JdbcProfile {
         }
       }
 
-      override def valueToSQLLiteral(value: LocalTime) : String = {
-        s"{ts '${timestampFromLocalTime(value).toString}'}"
-      }
+//      override def valueToSQLLiteral(value: LocalTime) : String = {
+//        s"{ts '${timestampFromLocalTime(value).toString}'}"
+//      }
     }
 
     class LocalDateTimeJdbcType extends super.LocalDateTimeJdbcType {
-      private[this] val formatter = {
-        new DateTimeFormatterBuilder()
-          .append(DateTimeFormatter.ISO_LOCAL_DATE)
-          .appendLiteral(' ')
-          .append(DateTimeFormatter.ISO_LOCAL_TIME)
-          .optionalStart()
-          .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
-          .optionalEnd()
-          .toFormatter()
-      }
+//      private[this] val formatter = {
+//        new DateTimeFormatterBuilder()
+//          .append(DateTimeFormatter.ISO_LOCAL_DATE)
+//          .appendLiteral(' ')
+//          .append(DateTimeFormatter.ISO_LOCAL_TIME)
+//          .optionalStart()
+//          .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+//          .optionalEnd()
+//          .toFormatter()
+//      }
+//
+//      private[this] def deserializeTimeString(oracleVarchar: String): LocalDateTime = {
+//        LocalDateTime.parse(oracleVarchar, formatter)
+//      }
 
-      private[this] def deserializeTimeString(oracleVarchar: String): LocalDateTime = {
-        LocalDateTime.parse(oracleVarchar, formatter)
-      }
-
-      override def sqlType = java.sql.Types.OTHER
+      override def sqlType = java.sql.Types.TIMESTAMP
 
       override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6)"
 
       override def valueToSQLLiteral(value: LocalDateTime): String = {
-        s"{ts '${Timestamp.from(value.toInstant(ZoneOffset.UTC))}'}"
+        s"{ts '${Timestamp.valueOf(value)}'}"
       }
 
       override def hasLiteralForm: Boolean = true
@@ -414,20 +414,23 @@ trait OracleProfile extends JdbcProfile {
       override def valueToSQLLiteral(value: Instant) = s"{ts '${Timestamp.from(value)}'}"
     }
 
+    //TODO Sue Read this and make sure it works http://palashray.com/how-to-handle-oracle-timestamp-with-timezone-from-java/
+    //TODO Sue I don't think update is being tested
+
     // The following JDBC types native implementation do not work as expected yet,
     // they still have some pending bugs when running the application in non-UTC Oracle
     // machines.
-    /*
     // No Oracle time type without date component. Add LocalDate.ofEpochDay(0), but ignore it.
     class OffsetTimeJdbcType extends super.OffsetTimeJdbcType {
       private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS x")
       private[this] def serializeTime(v : OffsetTime) : String = formatter.format(v.atDate(LocalDate.ofEpochDay(0)))
-      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
+//      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
       override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
       override def setValue(v: OffsetTime, p: PreparedStatement, idx: Int) = {
         p.setObject(idx, TimestamptzConverter.offsetTimeToTimestamptz(v), -101)
       }
       override def updateValue(v: OffsetTime, r: ResultSet, idx: Int) = {
+        //TODO Sue, don't go via String
         r.updateString(idx, serializeTime(v))
       }
       override def getValue(r: ResultSet, idx: Int): OffsetTime = {
@@ -442,12 +445,13 @@ trait OracleProfile extends JdbcProfile {
     class OffsetDateTimeJdbcType extends super.OffsetDateTimeJdbcType {
       private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS x")
       private[this] def serializeTime(v : OffsetDateTime) : String = formatter.format(v)
-      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
+//      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
       override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
       override def setValue(v: OffsetDateTime, p: PreparedStatement, idx: Int) = {
         p.setObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(v), -101)
       }
       override def updateValue(v: OffsetDateTime, r: ResultSet, idx: Int) = {
+        //TODO don't go via String
         r.updateString(idx, serializeTime(v))
       }
       override def getValue(r: ResultSet, idx: Int): OffsetDateTime = {
@@ -462,12 +466,13 @@ trait OracleProfile extends JdbcProfile {
     class ZonedDateTimeJdbcType extends super.ZonedDateTimeJdbcType {
       private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS VV")
       private[this] def serializeTime(v : ZonedDateTime) : String = formatter.format(v)
-      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
+//      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
       override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
       override def setValue(v: ZonedDateTime, p: PreparedStatement, idx: Int) = {
         p.setObject(idx, TimestamptzConverter.zonedDateTimeToTimestamptz(v), -101)
       }
       override def updateValue(v: ZonedDateTime, r: ResultSet, idx: Int) = {
+        //TODO Sue don't go via String
         r.updateString(idx, serializeTime(v))
       }
       override def getValue(r: ResultSet, idx: Int): ZonedDateTime = {
@@ -478,7 +483,6 @@ trait OracleProfile extends JdbcProfile {
         s"TO_TIMESTAMP_TZ('${serializeTime(value)}', 'YYYY-MM-DD HH24:MI:SS.FF3 TZR')"
       }
     }
-    */
   }
 
   /* Oracle throws an exception if you try to refer to a :new column in a
@@ -556,7 +560,7 @@ object OracleProfile extends OracleProfile {
 
 /* The following code will be used when the native implementation of
     java.time.OffsetDateTime, java.time.OffsetTime and java.time.ZonedDateTime
-    are natively implemented.
+    are natively implemented. */
 /**
   * Converts between {@link TIMESTAMPTZ} and java.time times and back.
   * Oracle jar not on path at compile time (but must be a run time)
@@ -597,14 +601,18 @@ object TimestamptzConverter {
   }
 
   def timestamptzToOffsetDateTime(dbData: Object) = {
-    val bytes = timestampTZToBytes.invoke(dbData).asInstanceOf[Array[Byte]]
-    val utc = extractUtc(bytes)
-    if (isFixedOffset(bytes)) {
-      val offset = extractOffset(bytes)
-      utc.withOffsetSameInstant(offset)
-    } else {
-      val zoneId = extractZoneId(bytes)
-      utc.atZoneSameInstant(zoneId).toOffsetDateTime
+    if (dbData == null)
+      null
+    else {
+      val bytes = timestampTZToBytes.invoke(dbData).asInstanceOf[Array[Byte]]
+      val utc = extractUtc(bytes)
+      if (isFixedOffset(bytes)) {
+        val offset = extractOffset(bytes)
+        utc.withOffsetSameInstant(offset)
+      } else {
+        val zoneId = extractZoneId(bytes)
+        utc.atZoneSameInstant(zoneId).toOffsetDateTime
+      }
     }
   }
 
@@ -619,14 +627,18 @@ object TimestamptzConverter {
   }
 
   def timestamptzToOffsetTime(dbData: Object) = {
-    val bytes = timestampTZToBytes.invoke(dbData).asInstanceOf[Array[Byte]]
-    val utc = extractUtc(bytes)
-    if (isFixedOffset(bytes)) {
-      val offset = extractOffset(bytes)
-      utc.withOffsetSameInstant(offset).toOffsetTime
-    } else {
-      val zoneId = extractZoneId(bytes)
-      utc.atZoneSameInstant(zoneId).toOffsetDateTime.toOffsetTime
+    if (dbData == null)
+      null
+    else {
+      val bytes = timestampTZToBytes.invoke(dbData).asInstanceOf[Array[Byte]]
+      val utc = extractUtc(bytes)
+      if (isFixedOffset(bytes)) {
+        val offset = extractOffset(bytes)
+        utc.withOffsetSameInstant(offset).toOffsetTime
+      } else {
+        val zoneId = extractZoneId(bytes)
+        utc.atZoneSameInstant(zoneId).toOffsetDateTime.toOffsetTime
+      }
     }
   }
 
@@ -648,14 +660,18 @@ object TimestamptzConverter {
   }
 
   def timestamptzToZonedDateTime(dbData: Object) = {
-    val bytes = timestampTZToBytes.invoke(dbData).asInstanceOf[Array[Byte]]
-    val utc = extractUtc(bytes)
-    if (isFixedOffset(bytes)) {
-      val offset = extractOffset(bytes)
-      utc.atZoneSameInstant(offset)
-    } else {
-      val zoneId = extractZoneId(bytes)
-      utc.atZoneSameInstant(zoneId)
+    if (dbData == null)
+      null
+    else {
+      val bytes = timestampTZToBytes.invoke(dbData).asInstanceOf[Array[Byte]]
+      val utc = extractUtc(bytes)
+      if (isFixedOffset(bytes)) {
+        val offset = extractOffset(bytes)
+        utc.atZoneSameInstant(offset)
+      } else {
+        val zoneId = extractZoneId(bytes)
+        utc.atZoneSameInstant(zoneId)
+      }
     }
   }
 
@@ -717,4 +733,3 @@ object TimestamptzConverter {
     bytes(12) = ((regionCode & lsb) << 2).toByte
   }
 }
-*/
