@@ -2,13 +2,12 @@ package slick.jdbc
 
 import scala.concurrent.ExecutionContext
 import java.time._
-import java.sql.{Date, ResultSet, Time, Timestamp}
+import java.sql.{Date, PreparedStatement, ResultSet, Time, Timestamp}
 import java.time.format.{DateTimeFormatter, DateTimeFormatterBuilder}
 import java.time.temporal.ChronoField
-import scala.reflect.{ClassTag,classTag}
 
+import scala.reflect.{ClassTag, classTag}
 import com.typesafe.config.Config
-
 import slick.ast._
 import slick.ast.Util._
 import slick.basic.Capability
@@ -18,7 +17,7 @@ import slick.jdbc.meta.{MColumn, MTable}
 import slick.lifted._
 import slick.relational.RelationalProfile
 import slick.sql.SqlCapabilities
-import slick.util.{SlickLogger, ConstArray, GlobalConfig}
+import slick.util.{ConstArray, GlobalConfig, SlickLogger}
 import slick.util.MacroSupport.macroSupportInterpolation
 import slick.util.ConfigExtensionMethods._
 
@@ -93,6 +92,7 @@ trait SQLServerProfile extends JdbcProfile {
       override def tpe = dbType match {
         case Some("date") => "java.sql.Date"
         case Some("time") => "java.sql.Time"
+        case Some("datetime2") => "java.sql.Timestamp"
         case _ => super.tpe
       }
       override def rawDefault = super.rawDefault.map(_.stripPrefix("(") // jtds
@@ -261,17 +261,21 @@ trait SQLServerProfile extends JdbcProfile {
     class TimeJdbcType extends super.TimeJdbcType {
       override def valueToSQLLiteral(value: Time) = "(convert(time, {t '" + value + "'}))"
       override def getValue(r: ResultSet, idx: Int) = {
-        val s = r.getString(idx)
-        val sep = s.indexOf('.')
-        if(sep == -1) Time.valueOf(s)
-        else {
-          val t = Time.valueOf(s.substring(0, sep))
-          val millis = (("0."+s.substring(sep+1)).toDouble * 1000.0).toInt
-          t.setTime(t.getTime + millis)
-          t
+        r.getString(idx) match {
+          case null => null
+          case serializedTime =>
+            val sep = serializedTime.indexOf('.')
+            if (sep == -1) Time.valueOf(serializedTime)
+            else {
+              val t = Time.valueOf(serializedTime.substring(0, sep))
+              val millis = (("0." + serializedTime.substring(sep + 1)).toDouble * 1000.0).toInt
+              t.setTime(t.getTime + millis)
+              t
+            }
         }
       }
     }
+
     class LocalTimeJdbcType extends super.LocalTimeJdbcType {
       private[this] val formatter : DateTimeFormatter = {
         new DateTimeFormatterBuilder()
@@ -305,7 +309,7 @@ trait SQLServerProfile extends JdbcProfile {
     class TimestampJdbcType extends super.TimestampJdbcType {
       /* TIMESTAMP in SQL Server is a data type for sequence numbers. What we
        * want here is DATETIME. */
-      override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIME"
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIME2(6)"
       override def valueToSQLLiteral(value: Timestamp) = "(convert(datetime, {ts '" + value + "'}))"
     }
     class LocalDateTimeJdbcType extends super.LocalDateTimeJdbcType {
@@ -328,38 +332,45 @@ trait SQLServerProfile extends JdbcProfile {
             timestamp.toLocalDateTime
         }
       }
-      override def valueToSQLLiteral(value: LocalDateTime) = {
-        value match {
-          case null =>
-            "NULL"
-          case _ =>
-            s"(convert(datetime2(6), '${formatter.format(value)}'))"
-        }
-      }
+//      override def valueToSQLLiteral(value: LocalDateTime) = {
+//        value match {
+//          case null =>
+//            "NULL"
+//          case _ =>
+//            s"(convert(datetime2(6), '${formatter.format(value)}'))"
+//        }
+//      }
     }
     class InstantJdbcType extends super.InstantJdbcType {
       private[this] val formatter : DateTimeFormatter = {
         new DateTimeFormatterBuilder()
           .append(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-          .optionalStart()
           .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
-          .optionalEnd()
+          .appendPattern(" ")
+          .appendOffset("+HH:MM", "")
           .toFormatter()
       }
       private[this] def serializeInstantValue(value : Instant) : String = {
         formatter.format(
-          LocalDateTime.ofInstant(value, ZoneOffset.UTC)
+          OffsetDateTime.ofInstant(value, ZoneOffset.UTC)
         )
       }
       /* TIMESTAMP in SQL Server is a data type for sequence numbers. What we
        * want here is DATETIME. */
-      override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIME2(6)"
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIMEOFFSET(6)"
+      override def setValue(v: Instant, p: PreparedStatement, idx: Int) : Unit = {
+        p.setString(idx, serializeInstantValue(v))
+      }
+      override def updateValue(v: Instant, r: ResultSet, idx: Int) : Unit = {
+        r.updateString(idx, serializeInstantValue(v))
+      }
+
       override def getValue(r: ResultSet, idx: Int): Instant = {
-        r.getTimestamp(idx) match {
+        r.getString(idx) match {
           case null =>
             null
-          case timestamp =>
-            timestamp.toLocalDateTime.toInstant(ZoneOffset.UTC)
+          case dateStr =>
+            OffsetDateTime.parse(dateStr, formatter).toInstant()
         }
       }
       override def valueToSQLLiteral(value: Instant) = {
@@ -367,7 +378,7 @@ trait SQLServerProfile extends JdbcProfile {
           case null =>
             "NULL"
           case _ =>
-            s"(convert(datetime2(6), '${serializeInstantValue(value)}'))"
+            s"(convert(datetimeoffset(6), '${serializeInstantValue(value)}'))"
         }
       }
     }

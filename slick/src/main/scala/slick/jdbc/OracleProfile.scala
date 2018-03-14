@@ -49,8 +49,6 @@ import slick.util.MacroSupport.macroSupportInterpolation
   *     which is always mapped back to BigDecimal in model and generated code.</li>
   *   <li>[[slick.jdbc.JdbcCapabilities.supportsByte]]:
   *     Oracle does not have a BYTE type.</li>
-  *   <li>[[slick.jdbc.JdbcCapabilities.javaTime]]:
-  *     The javaTime implementation for the OracleProfile is unfinished.</li>
   * </ul>
   *
   * Note: The Oracle JDBC driver has problems with quoted identifiers. Columns
@@ -333,10 +331,12 @@ trait OracleProfile extends JdbcProfile {
         if(v eq null) null else new Time(v.getTime)
       }
       override def updateValue(v: Time, r: ResultSet, idx: Int) = r.updateTimestamp(idx, new Timestamp(v.getTime))
+      //TODO Sue test valueToSQLLiteral
       override def valueToSQLLiteral(value: Time) = "{ts '"+(new Timestamp(value.getTime).toString)+"'}"
     }
 
     class UUIDJdbcType extends super.UUIDJdbcType {
+      override def sqlType = java.sql.Types.VARBINARY
       override def sqlTypeName(sym: Option[FieldSymbol]) = "RAW(32)"
       override def valueToSQLLiteral(value: UUID) = {
         val hex = value.toString.replace("-", "").toUpperCase
@@ -351,7 +351,10 @@ trait OracleProfile extends JdbcProfile {
         s"TO_DATE('${value.toString}', 'SYYYY-MM-DD')"
       }
       override def getValue(r: ResultSet, idx: Int): LocalDate = {
-        LocalDate.parse(r.getString(idx).substring(0, 10))
+        r.getString(idx) match {
+          case null => null
+          case dateStr => LocalDate.parse(dateStr.substring(0, 10))
+        }
       }
     }
 
@@ -368,58 +371,62 @@ trait OracleProfile extends JdbcProfile {
           case timestamp => timestamp.toLocalDateTime.toLocalTime
         }
       }
-
-//      override def valueToSQLLiteral(value: LocalTime) : String = {
-//        s"{ts '${timestampFromLocalTime(value).toString}'}"
-//      }
     }
 
+    // LocalDateTime and Instant are the 2 types which have no TZ component
+    // So, store them at UTC timestamps, otherwise the JDBC layer might attempt to map them
+    // and with DST changes, there are some times which will be unrepresentable during the switchover
     class LocalDateTimeJdbcType extends super.LocalDateTimeJdbcType {
-//      private[this] val formatter = {
-//        new DateTimeFormatterBuilder()
-//          .append(DateTimeFormatter.ISO_LOCAL_DATE)
-//          .appendLiteral(' ')
-//          .append(DateTimeFormatter.ISO_LOCAL_TIME)
-//          .optionalStart()
-//          .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
-//          .optionalEnd()
-//          .toFormatter()
+//      private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS x")
+//      private[this] def serializeTime(v : LocalDateTime) : String = formatter.format(v.atOffset(ZoneOffset.UTC))
+//      //      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
+//      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
+//      override def setValue(v: LocalDateTime, p: PreparedStatement, idx: Int) = {
+//        p.setObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(v.atOffset(ZoneOffset.UTC)), -101)
 //      }
+//      override def updateValue(v: LocalDateTime, r: ResultSet, idx: Int) = {
+//        r.updateObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(v.atOffset(ZoneOffset.UTC)), -101)
+//      }
+//      override def getValue(r: ResultSet, idx: Int): LocalDateTime = {
+//        r.getObject(idx) match {
+//          case null => null
+//          case timestamptz => LocalDateTime.from(TimestamptzConverter.timestamptzToOffsetDateTime(timestamptz))
 //
-//      private[this] def deserializeTimeString(oracleVarchar: String): LocalDateTime = {
-//        LocalDateTime.parse(oracleVarchar, formatter)
+//        }
 //      }
-
-      override def sqlType = java.sql.Types.TIMESTAMP
-
-      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6)"
-
-      override def valueToSQLLiteral(value: LocalDateTime): String = {
-        s"{ts '${Timestamp.valueOf(value)}'}"
+      override def valueToSQLLiteral(value: LocalDateTime) = {
+        s"TO_TIMESTAMP(${super.valueToSQLLiteral(value)}, 'YYYY-MM-DD HH24:MI:SS.FF3')"
       }
-
-      override def hasLiteralForm: Boolean = true
-
-      /*
-      override def getValue(r: ResultSet, idx: Int): LocalDateTime = {
-        r.getString(idx) match {
-          case null => null
-          case oracleString => deserializeTimeString(oracleString)
-        }
-      }
-      */
     }
 
     class InstantJdbcType extends super.InstantJdbcType {
-      override def valueToSQLLiteral(value: Instant) = s"{ts '${Timestamp.from(value)}'}"
+      private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS x")
+      private[this] def serializeTime(v: Instant) : String = formatter.format(instantToUTC(v))
+      private[this] def instantToUTC(v: Instant): OffsetDateTime = v.atOffset(ZoneOffset.UTC)
+
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
+      override def setValue(v: Instant, p: PreparedStatement, idx: Int) = {
+        p.setObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(instantToUTC(v)), -101)
+      }
+      override def updateValue(v: Instant, r: ResultSet, idx: Int) = {
+        r.updateObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(instantToUTC(v)), -101)
+      }
+      override def getValue(r: ResultSet, idx: Int): Instant = {
+        r.getObject(idx) match {
+          case null => null
+          case timestamptz => Instant.from(TimestamptzConverter.timestamptzToOffsetDateTime(timestamptz))
+
+        }
+      }
+      override def hasLiteralForm: Boolean = true
+      override def valueToSQLLiteral(value: Instant) = {
+        s"TO_TIMESTAMP_TZ('${serializeTime(value)}', 'YYYY-MM-DD HH24:MI:SS.FF3 TZH')"
+      }
     }
 
     //TODO Sue Read this and make sure it works http://palashray.com/how-to-handle-oracle-timestamp-with-timezone-from-java/
     //TODO Sue I don't think update is being tested
 
-    // The following JDBC types native implementation do not work as expected yet,
-    // they still have some pending bugs when running the application in non-UTC Oracle
-    // machines.
     // No Oracle time type without date component. Add LocalDate.ofEpochDay(0), but ignore it.
     class OffsetTimeJdbcType extends super.OffsetTimeJdbcType {
       private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS x")
@@ -430,8 +437,7 @@ trait OracleProfile extends JdbcProfile {
         p.setObject(idx, TimestamptzConverter.offsetTimeToTimestamptz(v), -101)
       }
       override def updateValue(v: OffsetTime, r: ResultSet, idx: Int) = {
-        //TODO Sue, don't go via String
-        r.updateString(idx, serializeTime(v))
+        r.updateObject(idx, TimestamptzConverter.offsetTimeToTimestamptz(v), -101)
       }
       override def getValue(r: ResultSet, idx: Int): OffsetTime = {
         TimestamptzConverter.timestamptzToOffsetTime(r.getObject(idx))
@@ -451,8 +457,7 @@ trait OracleProfile extends JdbcProfile {
         p.setObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(v), -101)
       }
       override def updateValue(v: OffsetDateTime, r: ResultSet, idx: Int) = {
-        //TODO don't go via String
-        r.updateString(idx, serializeTime(v))
+        r.updateObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(v), -101)
       }
       override def getValue(r: ResultSet, idx: Int): OffsetDateTime = {
         TimestamptzConverter.timestamptzToOffsetDateTime(r.getObject(idx))
@@ -472,8 +477,7 @@ trait OracleProfile extends JdbcProfile {
         p.setObject(idx, TimestamptzConverter.zonedDateTimeToTimestamptz(v), -101)
       }
       override def updateValue(v: ZonedDateTime, r: ResultSet, idx: Int) = {
-        //TODO Sue don't go via String
-        r.updateString(idx, serializeTime(v))
+        r.updateObject(idx, TimestamptzConverter.zonedDateTimeToTimestamptz(v), -101)
       }
       override def getValue(r: ResultSet, idx: Int): ZonedDateTime = {
         TimestamptzConverter.timestamptzToZonedDateTime(r.getObject(idx))

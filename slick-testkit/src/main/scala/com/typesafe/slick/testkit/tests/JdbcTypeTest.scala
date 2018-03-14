@@ -1,14 +1,17 @@
 package com.typesafe.slick.testkit.tests
 
-import com.typesafe.slick.testkit.util.{JdbcTestDB, AsyncTest}
-import java.io.{ObjectInputStream, ObjectOutputStream, ByteArrayOutputStream}
+import com.typesafe.slick.testkit.util.{AsyncTest, JdbcTestDB}
+import java.io.{ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
 import java.sql.{Blob, Date, Time, Timestamp}
 import java.util.UUID
 import java.time._
-import java.time.temporal.ChronoField
+import java.time.format.DateTimeFormatter
+import java.time.temporal.{ChronoField, ChronoUnit}
 import javax.sql.rowset.serial.SerialBlob
 
+import scala.annotation.tailrec
 import scala.concurrent.Future
+import scala.util.Random
 
 /** Data type related tests which are specific to JdbcProfile */
 class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
@@ -101,213 +104,236 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     ).transactionally
   }
 
-  private def roundtrip[T : BaseColumnType](tn: String, v: T) = {
-    class T1(tag: Tag) extends Table[(Int, T)](tag, tn) {
-      def id = column[Int]("id")
-      def data = column[T]("data")
+  import reflect.runtime.universe._
+  private def roundTrip[T : BaseColumnType : TypeTag](values: List[T],
+                                                      dataCreateFn: ()=>T,
+                                                      dataCompareFn: (Option[T], Option[T]) => Unit =
+                                                      (l: Option[T], r:Option[T]) => l shouldBe r) = {
+    val rowsSize = 4000
+    val rows = (1 to rowsSize).map(i => (i, Some(dataCreateFn())))
+    val updateValue = dataCreateFn()
+    val insertValue = dataCreateFn()
+
+    val tableName = "Data_" + values.headOption.getOrElse(dataCreateFn()).getClass.getSimpleName
+    class DataTable(tag: Tag) extends Table[(Int, Option[T])](tag, tableName) {
+      //TODO Sue Put the column names back to lower case and break the tests!
+      def id = column[Int]("ID", O.PrimaryKey)
+      def data = column[Option[T]]("DATA")
       def * = (id, data)
     }
-    val t1 = TableQuery[T1]
+    val dateTable = TableQuery[DataTable]
 
-    seq(
-      t1.schema.create,
-      t1 += (1, v),
-      t1.map(_.data).result.head.map(_ shouldBe v),
-      t1.filter(_.data === v).map(_.id).result.headOption.map(_ shouldBe Some(1)),
-      t1.filter(_.data =!= v).map(_.id).result.headOption.map(_ shouldBe None),
-      t1.filter(_.data === v.bind).map(_.id).result.headOption.map(_ shouldBe Some(1)),
-      t1.filter(_.data =!= v.bind).map(_.id).result.headOption.map(_ shouldBe None),
-      t1.filter(_.id === 1).map(_.data).update(v),
-      t1.map(_.data).result.head.map(_ shouldBe v)
-    )
+    db.run(seq(
+      dateTable.schema.create,
+      dateTable ++= values.zipWithIndex.map(x => (x._2, Some(x._1))),
+      dateTable.filter(_.id === 0).map(_.data).result.head.map(v => dataCompareFn(v, values.headOption)),
+      // select based on value literal
+      dateTable.filter(r => r.data === values.head && r.id === 0).map(_.id).result.headOption.map(_ shouldBe Some(0)),
+      dateTable.filter(r => r.data =!= values.head && r.id === 0).map(_.id).result.headOption.map(_ shouldBe None),
+      // select based on value binding
+      dateTable.filter(r => r.data === values.head.bind && r.id === 0).map(_.id).result.headOption.map(_ shouldBe Some(0)),
+      dateTable.filter(r => r.data =!= values.head.bind && r.id === 0).map(_.id).result.headOption.map(_ shouldBe None)
+    )).flatMap { _ =>
+      // update value
+      val newValue = dataCreateFn()
+      db.run(seq(
+        dateTable.filter(_.id === 0).map(_.data).update(Some(newValue)),
+        dateTable.filter(_.id === 0).map(_.data).result.head.map(v => dataCompareFn(v, Some(newValue)))
+      ))
+      //TODO Sue insert test with literal
+    }.flatMap { _ =>
+      // add and select a null value
+      db.run(seq(
+        dateTable += (values.size + 1, None),
+        dateTable.filter(_.id === values.size + 1).map(_.data).result.head.map(_ shouldBe None)
+      ))
+    }.flatMap { _ =>
+      ifCapF(jcap.mutable) {
+        db.run(seq(dateTable.delete, dateTable ++= rows)).flatMap { _ =>
+          foreach(db.stream(dateTable.mutate.transactionally)) { m =>
+            if (!m.end) {
+              // update value for id 1
+              if (m.row._1 == 1) m.row = m.row.copy(_2 = Some(updateValue))
+              // delete id 2
+              else if (m.row._1 == 2) m.delete
+              //set id 3 value to NULL
+              else if (m.row._1 == 3) m.row = m.row.copy(_2 = None)
+              else if (m.row._1 == 4) {
+                // insert 2 new rows, one with a value and one NULL
+                m += (rows.size + 1, Some(insertValue))
+                m += (rows.size + 2, None)
+              }
+            }
+          }
+        }.flatMap { _ =>
+          db.run(dateTable.sortBy(_.id).result).map(_.zip(
+            Seq((1, Some(updateValue)), (3, None)) ++
+              rows.slice(3, rows.size) ++
+              Seq((rowsSize + 1, Some(insertValue)), (rowsSize + 2, None))).
+            foreach(r => dataCompareFn(r._1._2, r._2._2))
+          )
+        }
+      }
+    }
   }
 
   def testUUID =
-    roundtrip[UUID]("uuid_t1", UUID.randomUUID())
+    roundTrip[UUID](List(UUID.randomUUID()), UUID.randomUUID)
 
-  def testDate =
-    roundtrip("date_t1", Date.valueOf("2012-12-24"))
-
-  def testLocalDate = ifCap(jcap.javaTime) {
-    roundtrip[LocalDate]("local_date_t1", LocalDate.now(ZoneOffset.UTC))
+  val random = Random
+  private def randomLocalDateTime() = {
+    val seconds = 100000000
+    now.plusSeconds(random.nextInt(seconds*2) - seconds)
   }
+  lazy val now = generateTestLocalDateTime()
+  val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
+
+  // Test the java.sql.* types
+  def testDate =
+    roundTrip[Date](
+      List(Date.valueOf("2012-12-24")),
+      () => Date.valueOf(randomLocalDateTime().toLocalDate)
+    )
 
   def testTime =
-    roundtrip("time_t1", Time.valueOf("17:53:48"))
-
-  private[this] def timeRoundTrip[T : BaseColumnType](tn: String, v: T) = {
-    roundtrip(tn, v) >> {
-      class T2(tag: Tag) extends Table[Option[T]](tag, s"${tn}_t2") {
-        def t = column[Option[T]]("t")
-        def * = t
-      }
-      val t2 = TableQuery[T2]
-      t2.schema.create >> (t2 += None) >> t2.result.head.map(_ shouldBe None)
-    }
-  }
+    roundTrip[Time](
+      List(Time.valueOf("17:53:48")),
+      () => Time.valueOf(randomLocalDateTime().toLocalTime)
+    )
 
   def testTimestamp = {
-    timeRoundTrip[Timestamp](
-      "timestamp_t1",
-      Timestamp.valueOf("2012-12-24 17:53:48.0")
+    def localDateTimeCompare(l: Option[Timestamp], r: Option[Timestamp]) = {
+      (l, r) match {
+        case (Some(l), Some(r)) =>
+          val lTime = l.getTime
+          val rTime = r.getTime
+          if (lTime != rTime && math.abs(lTime - rTime) != 3600000)
+            l shouldBe r
+        case _ => l shouldBe r
+      }
+    }
+    roundTrip[Timestamp](
+      List(Timestamp.valueOf("2012-12-24 17:53:48.0"),
+        Timestamp.valueOf("2016-10-30 01:12:16.0")),
+      dataCreateFn = () => Timestamp.from(randomLocalDateTime().toInstant(ZoneOffset.UTC)),
+      dataCompareFn = localDateTimeCompare
     )
   }
-  def testLocalTime = ifCap(jcap.javaTime) {
-    timeRoundTrip[LocalTime](
-      "local_time_hour_gt_10",
-      generateTestLocalDateTime().toLocalTime.withHour(14)
+
+  // Test the java.time.* types
+  def testLocalDate =
+    roundTrip[LocalDate](
+      List(LocalDate.now(ZoneOffset.UTC)),
+      () => randomLocalDateTime().toLocalDate
+    )
+
+  def testLocalTime =
+    roundTrip[LocalTime](
+      List(generateTestLocalDateTime().toLocalTime.withHour(14),
+        generateTestLocalDateTime().toLocalTime.withHour(5)),
+      () => randomLocalDateTime().toLocalTime
+    )
+
+  def testInstant = 
+    roundTrip[Instant](
+      List(LocalDateTime.parse("2018-03-25T01:37:40", formatter).toInstant(ZoneOffset.UTC),
+        generateTestLocalDateTime().withHour(15).toInstant(ZoneOffset.UTC),
+        generateTestLocalDateTime().withHour(5).toInstant(ZoneOffset.UTC)),
+      () => randomLocalDateTime().toInstant(ZoneOffset.UTC)
+    )
+
+  def testLocalDateTime = {
+    def localDateTimeCompare(l: Option[LocalDateTime], r: Option[LocalDateTime]) = {
+      (l, r) match {
+        case (Some(l), Some(r)) =>
+          if (l != r &&
+            math.abs(ChronoUnit.MILLIS.between(l, r)) != 3600000)
+            l shouldBe r
+        case _ => l shouldBe r
+      }
+    }
+
+    roundTrip[LocalDateTime](
+      List(LocalDateTime.parse("2018-03-25T01:37:40", formatter),
+        generateTestLocalDateTime().withHour(5),
+        generateTestLocalDateTime().withHour(12)),
+      dataCreateFn = () => randomLocalDateTime(),
+      dataCompareFn = localDateTimeCompare
     )
   }
-  def testLocalTimeWithHourLesserThan10 = ifCap(jcap.javaTime) {
-    timeRoundTrip[LocalTime](
-      "local_time_hour_lt_10",
-      generateTestLocalDateTime().toLocalTime.withHour(5)
+
+  private def randomZoneOffset = {
+    // offset could be +-18 in java.time context, but postgres is stricter
+    val hours = random.nextInt(26)-13
+    val mins = math.signum(hours) * random.nextInt(2) * 30
+    ZoneOffset.ofHoursMinutes(hours, mins)
+  }
+
+  def testOffsetTime = 
+    roundTrip[OffsetTime](
+      List(generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toOffsetTime.withHour(15),
+        generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toOffsetTime.withHour(5),
+        generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Samoa")).toOffsetDateTime.toOffsetTime.withHour(15),
+        generateTestLocalDateTime().atZone(ZoneId.of("Antarctica/Rothera")).toOffsetDateTime.toOffsetTime,
+        generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Wallis")).toOffsetDateTime.toOffsetTime,
+        generateTestLocalDateTime().atZone(ZoneId.of("Africa/Johannesburg")).toOffsetDateTime.toOffsetTime),
+      () => randomLocalDateTime().atOffset(randomZoneOffset).toOffsetTime
+    )
+  def testOffsetDateTime =
+    roundTrip[OffsetDateTime](
+      List(
+        generateTestLocalDateTime().atOffset(ZoneOffset.UTC).withHour(15),
+        generateTestLocalDateTime().atOffset(ZoneOffset.UTC).withHour(5),
+        generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Samoa")).toOffsetDateTime.withHour(15),
+        generateTestLocalDateTime().atZone(ZoneId.of("Africa/Addis_Ababa")).toOffsetDateTime.withHour(15),
+        generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Wallis")).toOffsetDateTime.withHour(15),
+        generateTestLocalDateTime().atZone(ZoneId.of("Africa/Johannesburg")).toOffsetDateTime.withHour(15)),
+      () => randomLocalDateTime().atOffset(randomZoneOffset)
+    )
+
+  // the database doesn't like all the zoneIds returned from ZoneId.getAvailableZoneIds so pick a subset to test with
+  val zoneIds = List(
+    "Europe/Zaporozhye",
+    "America/Argentina/Cordoba",
+    "America/Argentina/Salta",
+    "Etc/GMT+7",
+    "Europe/Kaliningrad",
+    "Antarctica/Davis",
+    "Mexico/BajaSur",
+    "Australia/ACT",
+    "America/Dawson_Creek",
+    "GB",
+    "America/Porto_Acre",
+    "Pacific/Johnston",
+    "Portugal",
+    "Australia/Eucla"
+  )
+  def testZonedDateTime = {
+    @tailrec
+    def generateTestZonedDateTime(): ZonedDateTime = {
+      val zoneId = ZoneId.of(zoneIds(random.nextInt(zoneIds.size)))
+      val rules = zoneId.getRules
+      val localDateTime = randomLocalDateTime()
+      val trans = rules.getTransition(localDateTime)
+      if (trans != null && trans.isGap) {
+        // invalid time generated (in DST gap), there's a good chance it won't roundtrip cleanly, try again
+        generateTestZonedDateTime()
+      } else {
+        localDateTime.atZone(zoneId)
+      }
+    }
+    roundTrip[ZonedDateTime](
+      List(
+        generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toZonedDateTime.withHour(14),
+        generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toZonedDateTime.withHour(5),
+        generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Samoa")).withHour(5),
+        generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Wallis")).withHour(5),
+        generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Wallis")).withHour(5),
+        generateTestLocalDateTime().atZone(ZoneId.of("Africa/Johannesburg")).withHour(5)),
+      generateTestZonedDateTime
     )
   }
-  def testInstant = ifCap(jcap.javaTime) {
-    timeRoundTrip[Instant](
-      "instant_t1",
-      generateTestLocalDateTime().withHour(15).toInstant(ZoneOffset.UTC)
-    )
-  }
-  def testInstantWithHourLesserThan10 = ifCap(jcap.javaTime) {
-    timeRoundTrip[Instant](
-      "instant_with_hour_lt_10",
-      generateTestLocalDateTime().withHour(5).toInstant(ZoneOffset.UTC)
-    )
-  }
-  def testLocalDateTimeWithHourLesserThan10 = ifCap(jcap.javaTime) {
-    timeRoundTrip[LocalDateTime](
-      "local_date_time_hour_lt_10",
-      generateTestLocalDateTime().withHour(5)
-    )
-  }
-  def testLocalDateTimeWithHourGreaterThan10 = ifCap(jcap.javaTime) {
-    timeRoundTrip[LocalDateTime](
-      "local_date_time_hour_gt_10",
-      generateTestLocalDateTime().withHour(12)
-    )
-  }
-  def testOffsetTime = ifCap(jcap.javaTime) {
-    timeRoundTrip[OffsetTime](
-      s"offset_time_tz_utc",
-      generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toOffsetTime.withHour(15)
-    )
-  }
-  def testOffsetTimeHourLessThan10UTC = ifCap(jcap.javaTime) {
-    timeRoundTrip[OffsetTime](
-      s"offset_time_utc_hour_lt_10",
-      generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toOffsetTime.withHour(5)
-    )
-  }
-  def testOffsetTimeNegativeOffsetGreaterThan10 = ifCap(jcap.javaTime) {
-    // Offset -> -11:00 / -11:00
-    timeRoundTrip[OffsetTime](
-      s"offset_time_tz_ntz_gt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Samoa")).toOffsetDateTime.toOffsetTime.withHour(15)
-    )
-  }
-  def testOffsetTimeNegativeOffsetLessThan10 = ifCap(jcap.javaTime) {
-    // Offset -> -3:00 / -3:00
-    timeRoundTrip[OffsetTime](
-      s"offset_time_tz_ntz_lt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Antarctica/Rothera")).toOffsetDateTime.toOffsetTime
-    )
-  }
-  def testOffsetTimePositiveOffsetGreaterThan10 = ifCap(jcap.javaTime) {
-    // Offset -> +12:00 / +12:00
-    timeRoundTrip[OffsetTime](
-      s"offset_time_tz_ptz_gt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Wallis")).toOffsetDateTime.toOffsetTime
-    )
-  }
-  def testOffsetTimePositiveOffsetLessThan10 = ifCap(jcap.javaTime) {
-    // Offset -> +2:00 / +2:00
-    timeRoundTrip[OffsetTime](
-      s"offset_time_tz_ptz_lt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Africa/Johannesburg")).toOffsetDateTime.toOffsetTime
-    )
-  }
-  def testOffsetDateTime = ifCap(jcap.javaTime) {
-    timeRoundTrip[OffsetDateTime](
-      s"offset_date_time_tz_utc",
-      generateTestLocalDateTime().atOffset(ZoneOffset.UTC).withHour(15)
-    )
-  }
-  def testOffsetDateTimeWithHourLesserThan10 = ifCap(jcap.javaTime) {
-    timeRoundTrip[OffsetDateTime](
-      s"offset_date_time_hour_lt_10",
-      generateTestLocalDateTime().atOffset(ZoneOffset.UTC).withHour(5)
-    )
-  }
-  def testOffsetDateTimeNegativeGreaterThan10 = ifCap(jcap.javaTime) {
-    // Offset -> -11:00 / -11:00
-    timeRoundTrip[OffsetDateTime](
-      s"offset_date_time_ntz_gt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Samoa")).toOffsetDateTime.withHour(15)
-    )
-  }
-  def testOffsetDateTimeNegativeLessThan10 = ifCap(jcap.javaTime) {
-    // Offset -> -3:00 / -3:00
-    timeRoundTrip[OffsetDateTime](
-      s"offset_date_time_ntz_lt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Africa/Addis_Ababa")).toOffsetDateTime.withHour(15)
-    )
-  }
-  def testOffsetDateTimePositiveGreaterThan10 = ifCap(jcap.javaTime) {
-    // Offset -> +12:00 / +12:00
-    timeRoundTrip[OffsetDateTime](
-      s"offset_date_time_ptz_gt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Wallis")).toOffsetDateTime.withHour(15)
-    )
-  }
-  def testOffsetDateTimePositiveLessThan10 = ifCap(jcap.javaTime) {
-    // Offset -> +2:00 / +2:00
-    timeRoundTrip[OffsetDateTime](
-      s"offset_date_time_ptz_lt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Africa/Johannesburg")).toOffsetDateTime.withHour(15)
-    )
-  }
-  def testZonedDateTime = ifCap(jcap.javaTime) {
-    timeRoundTrip[ZonedDateTime](
-      s"zoned_date_time_tz_utc",
-      generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toZonedDateTime.withHour(14)
-    )
-  }
-  def testZonedDateTimeWithHourLesserThan10 = ifCap(jcap.javaTime) {
-    timeRoundTrip[ZonedDateTime](
-      s"zoned_date_time_hour_lt_10",
-      generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toZonedDateTime.withHour(5)
-    )
-  }
-  def testZonedDateTimeNegativeGreaterThan10 = ifCap(jcap.javaTime) {
-    // Offset -> -11:00 / -11:00
-    timeRoundTrip[ZonedDateTime](
-      s"zoned_date_time_ntz_gt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Samoa")).withHour(5)
-    )
-  }
-  def testZonedDateTimeNegativeLessThan10 = ifCap(jcap.javaTime) {
-    // Offset -> -3:00 / -3:00
-    timeRoundTrip[ZonedDateTime](
-      s"zoned_date_time_ntz_lt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Wallis")).withHour(5)
-    )
-  }
-  def testZonedDateTimePositiveGreaterThan10 = ifCap(jcap.javaTime) {
-    // Offset -> +12:00 / +12:00
-    timeRoundTrip[ZonedDateTime](
-      s"zoned_date_time_ptz_gt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Wallis")).withHour(5)
-    )
-  }
-  def testZonedDateTimePositiveLessThan10 = ifCap(jcap.javaTime) {
-    // Offset -> +2:00 / +2:00
-    timeRoundTrip[ZonedDateTime](
-      s"zoned_date_time_ptz_lt_10",
-      generateTestLocalDateTime().atZone(ZoneId.of("Africa/Johannesburg")).withHour(5)
-    )
-  }
+
 
   /**
     * Generates a [[LocalDateTime]] used for the [[java.time]] type tests.
@@ -320,7 +346,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     * For more information about the MsSQL issue: https://sourceforge.net/p/jtds/feature-requests/73/
     */
   private[this] def generateTestLocalDateTime() : LocalDateTime = {
-    if (tdb.confName.contains("jtds")) {
+    if (tdb.confName.contains("jtds") || tdb.confName.contains("mysql")) {
       val now = Instant.now
       val offset = now.get(ChronoField.MILLI_OF_SECOND) % 10
       LocalDateTime.ofInstant(now.plusMillis(-offset), ZoneOffset.UTC)
