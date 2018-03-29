@@ -355,8 +355,6 @@ trait SQLServerProfile extends JdbcProfile {
           OffsetDateTime.ofInstant(value, ZoneOffset.UTC)
         )
       }
-      /* TIMESTAMP in SQL Server is a data type for sequence numbers. What we
-       * want here is DATETIME. */
       override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIMEOFFSET(6)"
       override def setValue(v: Instant, p: PreparedStatement, idx: Int) : Unit = {
         p.setString(idx, serializeInstantValue(v))

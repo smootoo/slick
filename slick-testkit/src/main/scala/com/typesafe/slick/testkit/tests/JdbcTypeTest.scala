@@ -104,12 +104,14 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     ).transactionally
   }
 
-  import reflect.runtime.universe._
-  private def roundTrip[T : BaseColumnType : TypeTag](values: List[T],
+  def testUUID =
+    roundTrip[UUID](List(UUID.randomUUID()), UUID.randomUUID)
+
+  private def roundTrip[T : BaseColumnType](values: List[T],
                                                       dataCreateFn: ()=>T,
-                                                      dataCompareFn: (Option[T], Option[T]) => Unit =
-                                                      (l: Option[T], r:Option[T]) => l shouldBe r) = {
-    val rowsSize = 4000
+                                                      dataCompareFn: (Int, Option[T], Option[T]) => Unit =
+                                                      (id: Int, l: Option[T], r:Option[T]) => (id, l) shouldBe (id, r)) = {
+    val rowsSize = 40000
     val rows = (1 to rowsSize).map(i => (i, Some(dataCreateFn())))
     val updateValue = dataCreateFn()
     val insertValue = dataCreateFn()
@@ -126,7 +128,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     db.run(seq(
       dateTable.schema.create,
       dateTable ++= values.zipWithIndex.map(x => (x._2, Some(x._1))),
-      dateTable.filter(_.id === 0).map(_.data).result.head.map(v => dataCompareFn(v, values.headOption)),
+      dateTable.filter(_.id === 0).result.head.map{case (id, v) => dataCompareFn(id, v, values.headOption)},
       // select based on value literal
       dateTable.filter(r => r.data === values.head && r.id === 0).map(_.id).result.headOption.map(_ shouldBe Some(0)),
       dateTable.filter(r => r.data =!= values.head && r.id === 0).map(_.id).result.headOption.map(_ shouldBe None),
@@ -138,9 +140,8 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
       val newValue = dataCreateFn()
       db.run(seq(
         dateTable.filter(_.id === 0).map(_.data).update(Some(newValue)),
-        dateTable.filter(_.id === 0).map(_.data).result.head.map(v => dataCompareFn(v, Some(newValue)))
+        dateTable.filter(_.id === 0).result.head.map{case (id, v) => dataCompareFn(id, v, Some(newValue))}
       ))
-      //TODO Sue insert test with literal
     }.flatMap { _ =>
       // add and select a null value
       db.run(seq(
@@ -170,15 +171,12 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
             Seq((1, Some(updateValue)), (3, None)) ++
               rows.slice(3, rows.size) ++
               Seq((rowsSize + 1, Some(insertValue)), (rowsSize + 2, None))).
-            foreach(r => dataCompareFn(r._1._2, r._2._2))
+            foreach{case ((lId, lValue), (rId, rValue)) => dataCompareFn(lId, lValue, rValue)}
           )
         }
       }
     }
   }
-
-  def testUUID =
-    roundTrip[UUID](List(UUID.randomUUID()), UUID.randomUUID)
 
   val random = Random
   private def randomLocalDateTime() = {
@@ -186,6 +184,31 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     now.plusSeconds(random.nextInt(seconds*2) - seconds)
   }
   lazy val now = generateTestLocalDateTime()
+  /**
+    * Generates a [[LocalDateTime]] used for the [[java.time]] type tests.
+    * The generated test [[LocalDateTime]] will adapt to the database system being used.
+    * If the SQL server driver `jtds` is used, there would be a 3 millisecond rounding, so
+    * this method will generate a [[LocalDateTime]], using [[LocalDateTime#now]] whose milliseconds
+    * ends either 0. It will just return [[LocalDateTime#now]] if any other driver or database
+    * is being used.
+    *
+    * Older version of MySQL have no millisecond resolution, so set all the ms component
+    * of the LocalDateTime to 000.
+    *
+    * For more information about the MsSQL issue: https://sourceforge.net/p/jtds/feature-requests/73/
+    */
+  private[this] def generateTestLocalDateTime() : LocalDateTime = {
+    if (tdb.confName.contains("jtds")) {
+      val now = Instant.now
+      val offset = now.get(ChronoField.MILLI_OF_SECOND) % 10
+      LocalDateTime.ofInstant(now.plusMillis(-offset), ZoneOffset.UTC)
+    } else if (tdb.confName.contains("mysql")) {
+      val now = Instant.now
+      val msOffset = now.get(ChronoField.MILLI_OF_SECOND)
+      LocalDateTime.ofInstant(now.plusMillis(-msOffset), ZoneOffset.UTC)
+    } else
+      LocalDateTime.now(ZoneOffset.UTC)
+  }
   val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
 
   // Test the java.sql.* types
@@ -202,14 +225,14 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     )
 
   def testTimestamp = {
-    def localDateTimeCompare(l: Option[Timestamp], r: Option[Timestamp]) = {
+    def localDateTimeCompare(id: Int, l: Option[Timestamp], r: Option[Timestamp]) = {
       (l, r) match {
         case (Some(l), Some(r)) =>
           val lTime = l.getTime
           val rTime = r.getTime
           if (lTime != rTime && math.abs(lTime - rTime) != 3600000)
-            l shouldBe r
-        case _ => l shouldBe r
+            (id, l) shouldBe (id, r)
+        case _ => (id, l) shouldBe (id, r)
       }
     }
     roundTrip[Timestamp](
@@ -243,13 +266,13 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     )
 
   def testLocalDateTime = {
-    def localDateTimeCompare(l: Option[LocalDateTime], r: Option[LocalDateTime]) = {
+    def localDateTimeCompare(id: Int, l: Option[LocalDateTime], r: Option[LocalDateTime]) = {
       (l, r) match {
         case (Some(l), Some(r)) =>
           if (l != r &&
             math.abs(ChronoUnit.MILLIS.between(l, r)) != 3600000)
-            l shouldBe r
-        case _ => l shouldBe r
+            (id, l) shouldBe (id, r)
+        case _ => (id, l) shouldBe (id, r)
       }
     }
 
@@ -269,7 +292,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     ZoneOffset.ofHoursMinutes(hours, mins)
   }
 
-  def testOffsetTime = 
+  def testOffsetTime =
     roundTrip[OffsetTime](
       List(generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toOffsetTime.withHour(15),
         generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toOffsetTime.withHour(5),
@@ -291,6 +314,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
       () => randomLocalDateTime().atOffset(randomZoneOffset)
     )
 
+  //TODO Sue set JVM default TZ to one of these
   // the database doesn't like all the zoneIds returned from ZoneId.getAvailableZoneIds so pick a subset to test with
   val zoneIds = List(
     "Europe/Zaporozhye",
@@ -316,7 +340,8 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
       val localDateTime = randomLocalDateTime()
       val trans = rules.getTransition(localDateTime)
       if (trans != null && trans.isGap) {
-        // invalid time generated (in DST gap), there's a good chance it won't roundtrip cleanly, try again
+        // an invalid time has been generated (in DST gap),
+        // there's a good chance it won't roundtrip cleanly, try again
         generateTestZonedDateTime()
       } else {
         localDateTime.atZone(zoneId)
@@ -332,26 +357,6 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
         generateTestLocalDateTime().atZone(ZoneId.of("Africa/Johannesburg")).withHour(5)),
       generateTestZonedDateTime
     )
-  }
-
-
-  /**
-    * Generates a [[LocalDateTime]] used for the [[java.time]] type tests.
-    * The generated test [[LocalDateTime]] will adapt to the database system being used.
-    * If the SQL server driver `jtds` is used, there would be a 3 millisecond rounding, so
-    * this method will generate a [[LocalDateTime]], using [[LocalDateTime#now]] whose milliseconds
-    * ends either 0. It will just return [[LocalDateTime#now]] if any other driver or database
-    * is being used.
-    *
-    * For more information about the MsSQL issue: https://sourceforge.net/p/jtds/feature-requests/73/
-    */
-  private[this] def generateTestLocalDateTime() : LocalDateTime = {
-    if (tdb.confName.contains("jtds") || tdb.confName.contains("mysql")) {
-      val now = Instant.now
-      val offset = now.get(ChronoField.MILLI_OF_SECOND) % 10
-      LocalDateTime.ofInstant(now.plusMillis(-offset), ZoneOffset.UTC)
-    } else
-      LocalDateTime.now(ZoneOffset.UTC)
   }
 
   def testOverrideIdentityType = {

@@ -331,7 +331,6 @@ trait OracleProfile extends JdbcProfile {
         if(v eq null) null else new Time(v.getTime)
       }
       override def updateValue(v: Time, r: ResultSet, idx: Int) = r.updateTimestamp(idx, new Timestamp(v.getTime))
-      //TODO Sue test valueToSQLLiteral
       override def valueToSQLLiteral(value: Time) = "{ts '"+(new Timestamp(value.getTime).toString)+"'}"
     }
 
@@ -423,9 +422,6 @@ trait OracleProfile extends JdbcProfile {
         s"TO_TIMESTAMP_TZ('${serializeTime(value)}', 'YYYY-MM-DD HH24:MI:SS.FF3 TZH')"
       }
     }
-
-    //TODO Sue Read this and make sure it works http://palashray.com/how-to-handle-oracle-timestamp-with-timezone-from-java/
-    //TODO Sue I don't think update is being tested
 
     // No Oracle time type without date component. Add LocalDate.ofEpochDay(0), but ignore it.
     class OffsetTimeJdbcType extends super.OffsetTimeJdbcType {
