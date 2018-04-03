@@ -261,8 +261,7 @@ trait PostgresProfile extends JdbcProfile {
     override val localDateType = new LocalDateJdbcType
     override val localTimeType = new LocalTimeJdbcType
     override val offsetTimeType = new OffsetTimeJdbcType
-    override val offsetDateTimeType = new OffsetDateTimeJdbcType
-    override val zonedDateType = new ZonedDateTimeJdbcType
+    //OffsetDateTime and ZonedDateTime not currently supportable natively by the backend
     override val instantType = new InstantJdbcType
     override val localDateTimeType = new LocalDateTimeJdbcType
 
@@ -301,6 +300,7 @@ trait PostgresProfile extends JdbcProfile {
       }
     }
 
+    import PGUtils.createPGObject
     class LocalDateJdbcType extends super.LocalDateJdbcType with PostgreTimeJdbcType[LocalDate] {
 
       private[this] val formatter = DateTimeFormatter.ISO_LOCAL_DATE
@@ -310,14 +310,14 @@ trait PostgresProfile extends JdbcProfile {
       implicit val serializeFiniteTime : (LocalDate => String) =  _.format(formatter)
       implicit val parseFiniteTime : (String => LocalDate) = LocalDate.parse(_, formatter)
 
-      override val sqlType = java.sql.Types.OTHER
+      override val sqlType = java.sql.Types.DATE
       override def sqlTypeName(sym: Option[FieldSymbol]) = "DATE"
       override def getValue(r: ResultSet, idx: Int): LocalDate = parseTime(r.getString(idx))
       override def setValue(v: LocalDate, p: PreparedStatement, idx: Int) = {
         p.setObject(idx, serializeTime(v), sqlType)
       }
       override def updateValue(v: LocalDate, r: ResultSet, idx: Int) = {
-        r.updateObject(idx, serializeTime(v), sqlType)
+        r.updateObject(idx, createPGObject(serializeTime(v), sqlTypeName(None)))
       }
       override val hasLiteralForm : Boolean = false
     }
@@ -337,7 +337,7 @@ trait PostgresProfile extends JdbcProfile {
         p.setObject(idx, serializeTime(v), sqlType)
       }
       override def updateValue(v: LocalTime, r: ResultSet, idx: Int) = {
-        r.updateObject(idx, serializeTime(v), sqlType)
+        r.updateObject(idx, createPGObject(serializeTime(v), sqlTypeName(None)))
       }
       override def getValue(r: ResultSet, idx: Int): LocalTime = parseTime(r.getString(idx))
       override val hasLiteralForm : Boolean = false
@@ -366,7 +366,7 @@ trait PostgresProfile extends JdbcProfile {
         p.setObject(idx, serializeTime(v), sqlType)
       }
       override def updateValue(v: OffsetTime, r: ResultSet, idx: Int) = {
-        r.updateObject(idx, serializeTime(v), sqlType)
+        r.updateObject(idx, createPGObject(serializeTime(v), sqlTypeName(None)))
       }
       override def getValue(r: ResultSet, idx: Int): OffsetTime = parseTime(r.getString(idx))
       override val hasLiteralForm : Boolean = false
@@ -378,7 +378,10 @@ trait PostgresProfile extends JdbcProfile {
         new DateTimeFormatterBuilder()
           .append(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
           .optionalStart()
-          .appendFraction(ChronoField.NANO_OF_SECOND,0,6,true)
+          .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
+          .optionalEnd()
+          .optionalStart()
+          .appendLiteral("+00")
           .optionalEnd()
           .toFormatter()
       }
@@ -392,12 +395,21 @@ trait PostgresProfile extends JdbcProfile {
 
       override val sqlType = java.sql.Types.OTHER
       override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP"
-      override def getValue(r: ResultSet, idx: Int): Instant = parseTime(r.getString(idx))
+      override def getValue(r: ResultSet, idx: Int): Instant = {
+        //TODO Sue why need both parsers?
+        val str = r.getString(idx)
+        try {
+          parseTime(str)
+        } catch {
+          case _: java.time.format.DateTimeParseException => Instant.parse(str)
+        }
+      }
       override def setValue(v: Instant, p: PreparedStatement, idx: Int) = {
         p.setObject(idx, serializeTime(v), sqlType)
       }
+
       override def updateValue(v: Instant, r: ResultSet, idx: Int) = {
-        r.updateObject(idx, serializeTime(v), sqlType)
+        r.updateObject(idx, createPGObject(serializeTime(v), sqlTypeName(None)))
       }
       override val hasLiteralForm : Boolean = false
     }
@@ -425,7 +437,7 @@ trait PostgresProfile extends JdbcProfile {
         p.setObject(idx, serializeTime(v), sqlType)
       }
       override def updateValue(v: LocalDateTime, r: ResultSet, idx: Int) = {
-        r.updateObject(idx, serializeTime(v), sqlType)
+        r.updateObject(idx, createPGObject(serializeTime(v), sqlTypeName(None)))
       }
       override val hasLiteralForm : Boolean = false
     }
@@ -442,3 +454,18 @@ trait PostgresProfile extends JdbcProfile {
 }
 
 object PostgresProfile extends PostgresProfile
+
+//TODO Sue Big comment!
+object PGUtils {
+  val pgObjectClass = Class.forName("org.postgresql.util.PGobject")
+  val pgObjectClassCtor = pgObjectClass.getConstructor()
+  val pgObjectClassSetType = pgObjectClass.getMethod("setType", classOf[String])
+  val pgObjectClassSetValue = pgObjectClass.getMethod("setValue", classOf[String])
+  def createPGObject(value: String, dbType: String) = {
+    val pgObject = pgObjectClassCtor.newInstance()
+    pgObjectClassSetType.invoke(pgObject, dbType)
+    pgObjectClassSetValue.invoke(pgObject, value)
+    pgObject
+  }
+
+}

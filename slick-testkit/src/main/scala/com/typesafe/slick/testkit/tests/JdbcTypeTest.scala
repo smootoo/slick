@@ -114,14 +114,13 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
                                            dataCreateFn: () => T,
                                            dataCompareFn: (Int, Option[T], Option[T]) => Unit =
                                            (id: Int, l: Option[T], r: Option[T]) => (id, l) shouldBe(id, r)) = {
-    val rowsSize = 40000
+    val rowsSize = 1000
     val rows = (1 to rowsSize).map(i => (i, Some(dataCreateFn())))
     val updateValue = dataCreateFn()
     val insertValue = dataCreateFn()
 
     val tableName = "Data_" + values.headOption.getOrElse(dataCreateFn()).getClass.getSimpleName
     class DataTable(tag: Tag) extends Table[(Int, Option[T])](tag, tableName) {
-      //TODO Sue Put the column names back to lower case and break the tests!
       def id = column[Int]("ID", O.PrimaryKey)
       def data = column[Option[T]]("DATA")
       def * = (id, data)
@@ -176,7 +175,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
             Seq((1, Some(updateValue)), (3, None)) ++
               rows.slice(3, rows.size) ++
               Seq((rowsSize + 1, Some(insertValue)), (rowsSize + 2, None))).
-            foreach{case ((lId, lValue), (rId, rValue)) => dataCompareFn(lId, lValue, rValue)}
+            foreach { case ((lId, lValue), (rId, rValue)) => dataCompareFn(lId, lValue, rValue) }
           )
         }
       }
