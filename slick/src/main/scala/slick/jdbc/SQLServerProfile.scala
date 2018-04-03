@@ -243,6 +243,7 @@ trait SQLServerProfile extends JdbcProfile {
     override val localDateTimeType = new LocalDateTimeJdbcType
     override val instantType = new InstantJdbcType
     override val offsetDateTimeType = new OffsetDateTimeJdbcType
+    //TODO Sue OffsetTime type?
     override val uuidJdbcType = new UUIDJdbcType {
       override def sqlTypeName(sym: Option[FieldSymbol]) = "UNIQUEIDENTIFIER"
     }
@@ -255,6 +256,8 @@ trait SQLServerProfile extends JdbcProfile {
      * because the type information gets lost along the way), so we cast all Date
      * and Timestamp values to the proper type. This work-around does not seem to
      * be required for Time values. */
+    /* TIMESTAMP in SQL Server is a data type for sequence numbers. What we
+     * want is DATETIME2. */
     class DateJdbcType extends super.DateJdbcType {
       override def valueToSQLLiteral(value: Date) = "(convert(date, {d '" + value + "'}))"
     }
@@ -307,8 +310,6 @@ trait SQLServerProfile extends JdbcProfile {
       }
     }
     class TimestampJdbcType extends super.TimestampJdbcType {
-      /* TIMESTAMP in SQL Server is a data type for sequence numbers. What we
-       * want here is DATETIME. */
       override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIME2(6)"
       override def valueToSQLLiteral(value: Timestamp) = "(convert(datetime, {ts '" + value + "'}))"
     }
@@ -321,8 +322,6 @@ trait SQLServerProfile extends JdbcProfile {
           .optionalEnd()
           .toFormatter()
       }
-      /* TIMESTAMP in SQL Server is a data type for sequence numbers. What we
-       * want here is DATETIME. */
       override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIME2(6)"
       override def getValue(r: ResultSet, idx: Int): LocalDateTime = {
         r.getTimestamp(idx) match {
@@ -332,14 +331,6 @@ trait SQLServerProfile extends JdbcProfile {
             timestamp.toLocalDateTime
         }
       }
-//      override def valueToSQLLiteral(value: LocalDateTime) = {
-//        value match {
-//          case null =>
-//            "NULL"
-//          case _ =>
-//            s"(convert(datetime2(6), '${formatter.format(value)}'))"
-//        }
-//      }
     }
     class InstantJdbcType extends super.InstantJdbcType {
       private[this] val formatter : DateTimeFormatter = {

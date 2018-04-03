@@ -1,8 +1,9 @@
 package slick.jdbc
 
-import java.sql.{PreparedStatement, ResultSet, Timestamp}
-import java.time._
-import java.time.format.DateTimeFormatter
+import java.sql.{PreparedStatement, ResultSet}
+import java.time.{Instant, LocalDateTime, OffsetDateTime, ZoneOffset, OffsetTime}
+import java.time.format.{DateTimeFormatter, DateTimeFormatterBuilder}
+import java.time.temporal.ChronoField
 
 import scala.concurrent.ExecutionContext
 import slick.ast._
@@ -167,6 +168,10 @@ trait DB2Profile extends JdbcProfile {
   class JdbcTypes extends super.JdbcTypes {
     override val booleanJdbcType = new BooleanJdbcType
     override val uuidJdbcType = new UUIDJdbcType
+    override val instantType : InstantJdbcType = new InstantJdbcType
+    override val offsetDateTimeType = new OffsetDateTimeJdbcType
+    override val offsetTimeType = new OffsetTimeJdbcType
+
     //TODO Sue add proper java.time types
 
     class UUIDJdbcType extends super.UUIDJdbcType {
@@ -180,6 +185,70 @@ trait DB2Profile extends JdbcProfile {
       override def sqlTypeName(sym: Option[FieldSymbol]) = "CHAR(1)"
       override def valueToSQLLiteral(value: Boolean) = if(value) "1" else "0"
     }
+
+    class InstantJdbcType extends super.InstantJdbcType {
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
+      override def setValue(v: Instant, p: PreparedStatement, idx: Int) : Unit = {
+        p.setString(idx, if (v == null) null else v.toString)
+      }
+      override def getValue(r: ResultSet, idx: Int) : Instant = {
+        r.getString(idx) match {
+          case null => null
+          case utcString => Instant.parse(utcString)
+        }
+      }
+      override def updateValue(v: Instant, r: ResultSet, idx: Int) = {
+        r.updateString(idx, if (v == null) null else v.toString)
+      }
+      override def valueToSQLLiteral(value: Instant) : String = {
+        s"'${value.toString}'"
+      }
+    }
+    class OffsetDateTimeJdbcType extends super.OffsetDateTimeJdbcType {
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIMEOFFSET(6)"
+
+      private[this] val formatter: DateTimeFormatter = {
+        new DateTimeFormatterBuilder()
+          .append(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+          .optionalStart()
+          .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
+          .optionalEnd()
+          .appendLiteral(' ')
+          .appendOffsetId()
+          .toFormatter()
+      }
+      override def getValue(r: ResultSet, idx: Int): OffsetDateTime = {
+        r.getString(idx) match {
+          case null =>
+            null
+          case timestamp =>
+            OffsetDateTime.parse(timestamp, formatter)
+        }
+      }
+    }
+    class OffsetTimeJdbcType extends super.OffsetTimeJdbcType {
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIMEOFFSET(6)"
+
+      private[this] val formatter: DateTimeFormatter = {
+        new DateTimeFormatterBuilder()
+          .append(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+          .optionalStart()
+          .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
+          .optionalEnd()
+          .appendLiteral(' ')
+          .appendOffsetId()
+          .toFormatter()
+      }
+      override def getValue(r: ResultSet, idx: Int): OffsetTime = {
+        r.getString(idx) match {
+          case null =>
+            null
+          case timestamp =>
+            OffsetTime.parse(timestamp, formatter)
+        }
+      }
+    }
+
   }
 }
 

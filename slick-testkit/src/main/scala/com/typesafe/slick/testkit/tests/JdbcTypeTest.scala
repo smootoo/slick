@@ -107,10 +107,13 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
   def testUUID =
     roundTrip[UUID](List(UUID.randomUUID()), UUID.randomUUID)
 
-  private def roundTrip[T : BaseColumnType](values: List[T],
-                                                      dataCreateFn: ()=>T,
-                                                      dataCompareFn: (Int, Option[T], Option[T]) => Unit =
-                                                      (id: Int, l: Option[T], r:Option[T]) => (id, l) shouldBe (id, r)) = {
+  // takes a list of static values, useful for potentially known problem values
+  // dataCreateFn will generate random values. If these fail intermittently, don't just re-run. It is highlighting
+  // a real issue. These should never fail.
+  private def roundTrip[T: BaseColumnType](values: List[T],
+                                           dataCreateFn: () => T,
+                                           dataCompareFn: (Int, Option[T], Option[T]) => Unit =
+                                           (id: Int, l: Option[T], r: Option[T]) => (id, l) shouldBe(id, r)) = {
     val rowsSize = 40000
     val rows = (1 to rowsSize).map(i => (i, Some(dataCreateFn())))
     val updateValue = dataCreateFn()
@@ -129,7 +132,8 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     db.run(seq(
       dateTable.schema.create,
       dateTable ++= staticValues,
-      dateTable.sortBy(_.id).result.map(_.zip(staticValues).foreach{case ((lId, lValue), (rId, rValue)) => dataCompareFn(lId, lValue, rValue)}),
+      dateTable.sortBy(_.id).result.map(_.zip(staticValues).
+        foreach{case ((lId, lValue), (rId, rValue)) => dataCompareFn(lId, lValue, rValue)}),
       // select based on value literal
       dateTable.filter(r => r.data === values.head && r.id === 0).map(_.id).result.headOption.map(_ shouldBe Some(0)),
       dateTable.filter(r => r.data =!= values.head && r.id === 0).map(_.id).result.headOption.map(_ shouldBe None),

@@ -131,11 +131,11 @@ trait H2Profile extends JdbcProfile {
       val formatter = new DateTimeFormatterBuilder()
                       .append(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
                       .optionalStart()
-                      .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
+                      .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
                       .optionalEnd()
                       .appendOffset("+HH", "")
                       .toFormatter()
-      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(9) WITH TIME ZONE"
 
       override def setValue(v: Instant, p: PreparedStatement, idx: Int) : Unit = {
         p.setString(idx, if (v == null) null else v.toString)

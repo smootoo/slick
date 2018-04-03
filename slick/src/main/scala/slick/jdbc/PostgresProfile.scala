@@ -261,6 +261,8 @@ trait PostgresProfile extends JdbcProfile {
     override val localDateType = new LocalDateJdbcType
     override val localTimeType = new LocalTimeJdbcType
     override val offsetTimeType = new OffsetTimeJdbcType
+    override val offsetDateTimeType = new OffsetDateTimeJdbcType
+    override val zonedDateType = new ZonedDateTimeJdbcType
     override val instantType = new InstantJdbcType
     override val localDateTimeType = new LocalDateTimeJdbcType
 

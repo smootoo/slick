@@ -403,7 +403,7 @@ trait OracleProfile extends JdbcProfile {
       private[this] def serializeTime(v: Instant) : String = formatter.format(instantToUTC(v))
       private[this] def instantToUTC(v: Instant): OffsetDateTime = v.atOffset(ZoneOffset.UTC)
 
-      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
+      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(9) WITH TIME ZONE"
       override def setValue(v: Instant, p: PreparedStatement, idx: Int) = {
         p.setObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(instantToUTC(v)), -101)
       }
