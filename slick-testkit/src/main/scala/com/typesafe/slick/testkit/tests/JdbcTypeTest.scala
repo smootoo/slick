@@ -125,10 +125,11 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     }
     val dateTable = TableQuery[DataTable]
 
+    val staticValues = values.zipWithIndex.map(x => (x._2, Some(x._1)))
     db.run(seq(
       dateTable.schema.create,
-      dateTable ++= values.zipWithIndex.map(x => (x._2, Some(x._1))),
-      dateTable.filter(_.id === 0).result.head.map{case (id, v) => dataCompareFn(id, v, values.headOption)},
+      dateTable ++= staticValues,
+      dateTable.sortBy(_.id).result.map(_.zip(staticValues).foreach{case ((lId, lValue), (rId, rValue)) => dataCompareFn(lId, lValue, rValue)}),
       // select based on value literal
       dateTable.filter(r => r.data === values.head && r.id === 0).map(_.id).result.headOption.map(_ shouldBe Some(0)),
       dateTable.filter(r => r.data =!= values.head && r.id === 0).map(_.id).result.headOption.map(_ shouldBe None),
@@ -230,6 +231,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
         case (Some(l), Some(r)) =>
           val lTime = l.getTime
           val rTime = r.getTime
+          //TODO Sue big comment!
           if (lTime != rTime && math.abs(lTime - rTime) != 3600000)
             (id, l) shouldBe (id, r)
         case _ => (id, l) shouldBe (id, r)
@@ -270,6 +272,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
       (l, r) match {
         case (Some(l), Some(r)) =>
           if (l != r &&
+            //TODO Sue big comment!
             math.abs(ChronoUnit.MILLIS.between(l, r)) != 3600000)
             (id, l) shouldBe (id, r)
         case _ => (id, l) shouldBe (id, r)
@@ -294,7 +297,9 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
 
   def testOffsetTime =
     roundTrip[OffsetTime](
-      List(generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toOffsetTime.withHour(15),
+      List(OffsetTime.of(0, 0, 1, 746000000, ZoneOffset.ofHours(1)),
+        OffsetTime.of(0, 0, 0, 745000000, ZoneOffset.ofHours(1)),
+        generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toOffsetTime.withHour(15),
         generateTestLocalDateTime().atOffset(ZoneOffset.UTC).toOffsetTime.withHour(5),
         generateTestLocalDateTime().atZone(ZoneId.of("Pacific/Samoa")).toOffsetDateTime.toOffsetTime.withHour(15),
         generateTestLocalDateTime().atZone(ZoneId.of("Antarctica/Rothera")).toOffsetDateTime.toOffsetTime,
@@ -302,6 +307,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
         generateTestLocalDateTime().atZone(ZoneId.of("Africa/Johannesburg")).toOffsetDateTime.toOffsetTime),
       () => randomLocalDateTime().atOffset(randomZoneOffset).toOffsetTime
     )
+
   def testOffsetDateTime =
     roundTrip[OffsetDateTime](
       List(

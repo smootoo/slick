@@ -218,7 +218,14 @@ trait HsqldbProfile extends JdbcProfile {
           case null => null
           case hsqldbString =>
             @inline val normalizedIsoString : String = offsetConvertHsqldbToISO(hsqldbString)
-            OffsetTime.parse(normalizedIsoString,timeFormatter)
+            // in a subsecond greater than 00:00:00 and with an offset, we seem to get back a string like
+            // '24:00:00.745+01:00' instead of '00:00:00.745+01:00' which is an invalid OffsetTime,
+            // so update the leading 24 to 00
+            OffsetTime.parse(
+              if (normalizedIsoString.startsWith("24:00:00"))
+                "00" + normalizedIsoString.substring(2)
+              else
+                normalizedIsoString, timeFormatter)
         }
       }
     }
