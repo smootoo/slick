@@ -168,11 +168,7 @@ trait DB2Profile extends JdbcProfile {
   class JdbcTypes extends super.JdbcTypes {
     override val booleanJdbcType = new BooleanJdbcType
     override val uuidJdbcType = new UUIDJdbcType
-    override val instantType : InstantJdbcType = new InstantJdbcType
-    override val offsetDateTimeType = new OffsetDateTimeJdbcType
-    override val offsetTimeType = new OffsetTimeJdbcType
-
-    //TODO Sue add proper java.time types
+    override val instantType = new InstantJdbcType
 
     class UUIDJdbcType extends super.UUIDJdbcType {
       override def sqlType = java.sql.Types.CHAR
@@ -187,67 +183,27 @@ trait DB2Profile extends JdbcProfile {
     }
 
     class InstantJdbcType extends super.InstantJdbcType {
-      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
+      // Can't use Timestamp as the type here as subject to 2 hours DST loss each year
+      override def sqlType : Int = {
+        java.sql.Types.VARCHAR
+      }
       override def setValue(v: Instant, p: PreparedStatement, idx: Int) : Unit = {
-        p.setString(idx, if (v == null) null else v.toString)
+        p.setString(idx, v.toString)
       }
       override def getValue(r: ResultSet, idx: Int) : Instant = {
         r.getString(idx) match {
           case null => null
-          case utcString => Instant.parse(utcString)
+          case instantStr => Instant.parse(instantStr)
         }
       }
-      override def updateValue(v: Instant, r: ResultSet, idx: Int) = {
-        r.updateString(idx, if (v == null) null else v.toString)
+      override def updateValue(v: Instant, r: ResultSet, idx: Int) : Unit = {
+        r.updateString(idx, v.toString)
       }
-      override def valueToSQLLiteral(value: Instant) : String = {
-        s"'${value.toString}'"
+      override def valueToSQLLiteral(value: Instant) = {
+        s"'$value'"
       }
     }
-    class OffsetDateTimeJdbcType extends super.OffsetDateTimeJdbcType {
-      override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIMEOFFSET(6)"
 
-      private[this] val formatter: DateTimeFormatter = {
-        new DateTimeFormatterBuilder()
-          .append(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-          .optionalStart()
-          .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
-          .optionalEnd()
-          .appendLiteral(' ')
-          .appendOffsetId()
-          .toFormatter()
-      }
-      override def getValue(r: ResultSet, idx: Int): OffsetDateTime = {
-        r.getString(idx) match {
-          case null =>
-            null
-          case timestamp =>
-            OffsetDateTime.parse(timestamp, formatter)
-        }
-      }
-    }
-    class OffsetTimeJdbcType extends super.OffsetTimeJdbcType {
-      override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIMEOFFSET(6)"
-
-      private[this] val formatter: DateTimeFormatter = {
-        new DateTimeFormatterBuilder()
-          .append(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-          .optionalStart()
-          .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
-          .optionalEnd()
-          .appendLiteral(' ')
-          .appendOffsetId()
-          .toFormatter()
-      }
-      override def getValue(r: ResultSet, idx: Int): OffsetTime = {
-        r.getString(idx) match {
-          case null =>
-            null
-          case timestamp =>
-            OffsetTime.parse(timestamp, formatter)
-        }
-      }
-    }
 
   }
 }
