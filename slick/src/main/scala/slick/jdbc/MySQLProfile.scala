@@ -210,7 +210,7 @@ trait MySQLProfile extends JdbcProfile { profile =>
       case _ =>
     }
 
-    override protected def buildOrdering(n: Node, o: Ordering) {
+    override protected def buildOrdering(n: Node, o: Ordering): Unit = {
       if(o.nulls.last && !o.direction.desc)
         b"isnull($n),"
       else if(o.nulls.first && o.direction.desc)
@@ -256,7 +256,7 @@ trait MySQLProfile extends JdbcProfile { profile =>
   }
 
   class ColumnDDLBuilder(column: FieldSymbol) extends super.ColumnDDLBuilder(column) {
-    override protected def appendOptions(sb: StringBuilder) {
+    override protected def appendOptions(sb: StringBuilder): Unit = {
       if(defaultLiteral ne null) sb append " DEFAULT " append defaultLiteral
       if(notNull) sb append " NOT NULL"
       else if(sqlType.toUpperCase == "TIMESTAMP") sb append " NULL"

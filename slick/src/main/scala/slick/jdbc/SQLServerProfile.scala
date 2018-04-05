@@ -117,11 +117,7 @@ trait SQLServerProfile extends JdbcProfile {
     new ModelBuilder(tables, ignoreInvalidDefaults)
 
   override def defaultTables(implicit ec: ExecutionContext): DBIO[Seq[MTable]] = {
-    import api._
-    for {
-      schema <- Functions.user.result
-      mtables <- MTable.getTables(None, Some(schema), None, Some(Seq("TABLE")))
-    } yield mtables
+    MTable.getTables(None, None, None, Some(Seq("TABLE"))).map(_.filter(!_.name.schema.contains("sys")))
   }
 
   override def defaultSqlTypeName(tmd: JdbcType[_], sym: Option[FieldSymbol]): String = tmd.sqlType match {
@@ -147,7 +143,7 @@ trait SQLServerProfile extends JdbcProfile {
     override protected val supportsTuples = false
     override protected val concatOperator = Some("+")
 
-    override protected def buildSelectModifiers(c: Comprehension) {
+    override protected def buildSelectModifiers(c: Comprehension): Unit = {
       super.buildSelectModifiers(c)
       (c.fetch, c.offset) match {
         case (Some(t), Some(d)) => b"top (${QueryParameter.constOp[Long]("+")(_ + _)(t, d)}) "
@@ -158,7 +154,7 @@ trait SQLServerProfile extends JdbcProfile {
 
     override protected def buildFetchOffsetClause(fetch: Option[Node], offset: Option[Node]) = ()
 
-    override protected def buildOrdering(n: Node, o: Ordering) {
+    override protected def buildOrdering(n: Node, o: Ordering): Unit = {
       if(o.nulls.last && !o.direction.desc)
         b"case when ($n) is null then 1 else 0 end,"
       else if(o.nulls.first && o.direction.desc)
@@ -209,7 +205,7 @@ trait SQLServerProfile extends JdbcProfile {
   }
 
   class TableDDLBuilder(table: Table[_]) extends super.TableDDLBuilder(table) {
-    override protected def addForeignKey(fk: ForeignKey, sb: StringBuilder) {
+    override protected def addForeignKey(fk: ForeignKey, sb: StringBuilder): Unit = {
       val updateAction = fk.onUpdate.action
       val deleteAction = fk.onDelete.action
       sb append "constraint " append quoteIdentifier(fk.name) append " foreign key("
@@ -220,10 +216,40 @@ trait SQLServerProfile extends JdbcProfile {
       sb append ") on update " append (if(updateAction == "RESTRICT") "NO ACTION" else updateAction)
       sb append " on delete " append (if(deleteAction == "RESTRICT") "NO ACTION" else deleteAction)
     }
+
+    override def dropIfExistsPhase = {
+      //http://stackoverflow.com/questions/7887011/how-to-drop-a-table-if-it-exists-in-sql-server
+      Iterable(
+      "IF EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'"
+      + (tableNode.schemaName match{
+        case Some(s)=>s+"."
+        case None=>""
+      })
+      + tableNode.tableName
+      + "') AND type in (N'U'))\n"
+      + "begin\n"
+      + dropPhase1.mkString("\n") + dropPhase2.mkString("\n")
+      + "\nend")
+    }
+
+    override def createIfNotExistsPhase = {
+      //http://stackoverflow.com/questions/5952006/how-to-check-if-table-exist-and-if-it-doesnt-exist-create-table-in-sql-server-2
+      Iterable(
+      "IF  NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'"
+      + (tableNode.schemaName match{
+        case Some(s)=>s+"."
+        case None=>""
+      })
+      + tableNode.tableName
+      + "') AND type in (N'U'))\n"
+      + "begin\n"
+      + createPhase1.mkString("\n") + createPhase2.mkString("\n")
+      + "\nend")
+    }
   }
 
   class ColumnDDLBuilder(column: FieldSymbol) extends super.ColumnDDLBuilder(column) {
-    override protected def appendOptions(sb: StringBuilder) {
+    override protected def appendOptions(sb: StringBuilder): Unit = {
       if(defaultLiteral ne null) sb append " DEFAULT " append defaultLiteral
       if(notNull) sb append " NOT NULL"
       if(primaryKey) sb append " PRIMARY KEY"

@@ -125,7 +125,7 @@ object StandardTestDBs {
     val profile: Profile = MemoryProfile
     val confName: String = "heap"
     def createDB: profile.Backend#Database = profile.backend.Database(ExecutionContext.global)
-    def dropUserArtifacts(implicit session: profile.Backend#Session) {
+    def dropUserArtifacts(implicit session: profile.Backend#Session): Unit = {
       val db = session.database
       db.getTables.foreach(t => db.dropTable(t.name))
     }
@@ -319,7 +319,7 @@ abstract class DerbyDB(confName: String) extends InternalJdbcTestDB(confName) {
 }
 
 object DerbyDB {
-  val DEV_NULL = new java.io.OutputStream { def write(b: Int) {} };
+  val DEV_NULL = new java.io.OutputStream { def write(b: Int): Unit = {} };
 }
 
 abstract class HsqlDB(confName: String) extends InternalJdbcTestDB(confName) {
