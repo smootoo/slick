@@ -243,7 +243,6 @@ trait SQLServerProfile extends JdbcProfile {
     override val localDateTimeType = new LocalDateTimeJdbcType
     override val instantType = new InstantJdbcType
     override val offsetDateTimeType = new OffsetDateTimeJdbcType
-    //TODO Sue OffsetTime type?
     override val uuidJdbcType = new UUIDJdbcType {
       override def sqlTypeName(sym: Option[FieldSymbol]) = "UNIQUEIDENTIFIER"
     }

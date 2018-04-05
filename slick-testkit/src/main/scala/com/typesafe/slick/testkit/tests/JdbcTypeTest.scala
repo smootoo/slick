@@ -107,15 +107,21 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
   def testUUID =
     roundTrip[UUID](List(UUID.randomUUID()), UUID.randomUUID)
 
-  // takes a list of static values, useful for potentially known problem values
-  // dataCreateFn will generate random values. If these fail intermittently, don't just re-run. It is highlighting
-  // a real issue. These should never fail.
+  /**
+    *
+    * @param values List of static values, useful for potentially known problem values
+    * @param dataCreateFn generate random values. If these fail intermittently, don't just re-run. It is highlighting
+    *                     a real issue. These should never fail.
+    * @param dataCompareFn Optional compare function
+    * @tparam T The type to test
+    */
   private def roundTrip[T: BaseColumnType](values: List[T],
                                            dataCreateFn: () => T,
                                            dataCompareFn: (Int, Option[T], Option[T]) => Unit =
                                            (id: Int, l: Option[T], r: Option[T]) => (id, l) shouldBe(id, r)) = {
-    val rowsSize = 1000
-    val rows = (1 to rowsSize).map(i => (i, Some(dataCreateFn())))
+    // How many random values to generate and test with
+    val testValuesSize = 1000
+    val rows = (1 to testValuesSize).map(i => (i, Some(dataCreateFn())))
     val updateValue = dataCreateFn()
     val insertValue = dataCreateFn()
 
@@ -174,7 +180,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
           db.run(dateTable.sortBy(_.id).result).map(_.zip(
             Seq((1, Some(updateValue)), (3, None)) ++
               rows.slice(3, rows.size) ++
-              Seq((rowsSize + 1, Some(insertValue)), (rowsSize + 2, None))).
+              Seq((testValuesSize + 1, Some(insertValue)), (testValuesSize + 2, None))).
             foreach { case ((lId, lValue), (rId, rValue)) => dataCompareFn(lId, lValue, rValue) }
           )
         }
@@ -228,14 +234,19 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
       () => Time.valueOf(randomLocalDateTime().toLocalTime)
     )
 
+  // both the Timestamp and the LocalDateTime tests allow a difference in roundtripping the values of exactly
+  // one hour. This will happen during a DST shift, either backwards or forwards an hour and may happen depending
+  // on the configuration of some combination of the database backend, OS and JVM.
+  // This is far from ideal, but reflects the reality of mapping into a timestamp without time zone datatype in the db.
+  // All the other time datatypes roundtrip cleanly.
+  val hourInMs = 3600000
   def testTimestamp = {
-    def localDateTimeCompare(id: Int, l: Option[Timestamp], r: Option[Timestamp]) = {
+    def timestampCompare(id: Int, l: Option[Timestamp], r: Option[Timestamp]) = {
       (l, r) match {
         case (Some(l), Some(r)) =>
           val lTime = l.getTime
           val rTime = r.getTime
-          //TODO Sue big comment!
-          if (lTime != rTime && math.abs(lTime - rTime) != 3600000)
+          if (lTime != rTime && math.abs(lTime - rTime) != hourInMs)
             (id, l) shouldBe (id, r)
         case _ => (id, l) shouldBe (id, r)
       }
@@ -244,11 +255,31 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
       List(Timestamp.valueOf("2012-12-24 17:53:48.0"),
         Timestamp.valueOf("2016-10-30 01:12:16.0")),
       dataCreateFn = () => Timestamp.from(randomLocalDateTime().toInstant(ZoneOffset.UTC)),
-      dataCompareFn = localDateTimeCompare
+      dataCompareFn = timestampCompare
     )
   }
 
   // Test the java.time.* types
+  def testLocalDateTime = {
+    def localDateTimeCompare(id: Int, l: Option[LocalDateTime], r: Option[LocalDateTime]) = {
+      (l, r) match {
+        case (Some(l), Some(r)) =>
+          if (l != r &&
+            math.abs(ChronoUnit.MILLIS.between(l, r)) != hourInMs)
+            (id, l) shouldBe (id, r)
+        case _ => (id, l) shouldBe (id, r)
+      }
+    }
+
+    roundTrip[LocalDateTime](
+      List(LocalDateTime.parse("2018-03-25T01:37:40", formatter),
+        generateTestLocalDateTime().withHour(5),
+        generateTestLocalDateTime().withHour(12)),
+      dataCreateFn = () => randomLocalDateTime(),
+      dataCompareFn = localDateTimeCompare
+    )
+  }
+
   def testLocalDate =
     roundTrip[LocalDate](
       List(LocalDate.now(ZoneOffset.UTC)),
@@ -269,27 +300,6 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
         generateTestLocalDateTime().withHour(5).toInstant(ZoneOffset.UTC)),
       () => randomLocalDateTime().toInstant(ZoneOffset.UTC)
     )
-
-  def testLocalDateTime = {
-    def localDateTimeCompare(id: Int, l: Option[LocalDateTime], r: Option[LocalDateTime]) = {
-      (l, r) match {
-        case (Some(l), Some(r)) =>
-          if (l != r &&
-            //TODO Sue big comment!
-            math.abs(ChronoUnit.MILLIS.between(l, r)) != 3600000)
-            (id, l) shouldBe (id, r)
-        case _ => (id, l) shouldBe (id, r)
-      }
-    }
-
-    roundTrip[LocalDateTime](
-      List(LocalDateTime.parse("2018-03-25T01:37:40", formatter),
-        generateTestLocalDateTime().withHour(5),
-        generateTestLocalDateTime().withHour(12)),
-      dataCreateFn = () => randomLocalDateTime(),
-      dataCompareFn = localDateTimeCompare
-    )
-  }
 
   private def randomZoneOffset = {
     // offset could be +-18 in java.time context, but postgres is stricter
@@ -323,8 +333,8 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
       () => randomLocalDateTime().atOffset(randomZoneOffset)
     )
 
-  //TODO Sue set JVM default TZ to one of these
-  // the database doesn't like all the zoneIds returned from ZoneId.getAvailableZoneIds so pick a subset to test with
+  // the database backends that support named timezones aren't necessarily configured for all
+  // the zoneIds returned from ZoneId.getAvailableZoneIds (e.g. Oracle 11), so pick a subset to test with
   val zoneIds = List(
     "Europe/Zaporozhye",
     "America/Argentina/Cordoba",

@@ -396,7 +396,8 @@ trait PostgresProfile extends JdbcProfile {
       override val sqlType = java.sql.Types.OTHER
       override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP"
       override def getValue(r: ResultSet, idx: Int): Instant = {
-        //TODO Sue why need both parsers?
+        // Postrgres seems to sometimes return strings in the standard UTC timeformat and so Instant.parse
+        // works. So try that if there is an initial ParseException
         val str = r.getString(idx)
         try {
           parseTime(str)
@@ -455,7 +456,11 @@ trait PostgresProfile extends JdbcProfile {
 
 object PostgresProfile extends PostgresProfile
 
-//TODO Sue Big comment!
+// ResultSet.updateObject isn't behaving in the same way as ResultSet.getObject and PreparedStatement.setObject
+// when it comes to passing strigified versions of time representations. The error is from the backend
+// There will be a "hint: you will need to rewrite or cast the expression" error
+// Creating a PGobject and passing the correct type information allows updateObeject to work.
+// The postgres jdbc jar isn't on the classpath at compile time, so get access to it with reflection.
 object PGUtils {
   val pgObjectClass = Class.forName("org.postgresql.util.PGobject")
   val pgObjectClassCtor = pgObjectClass.getConstructor()
