@@ -162,6 +162,45 @@ trait OracleProfile extends JdbcProfile {
     override val createPhase1 = super.createPhase1 ++ createAutoIncSequences
     override val dropPhase2 = dropAutoIncSequences ++ super.dropPhase2
 
+    override def createIfNotExistsPhase = {
+      //
+      Iterable(
+"""
+BEGIN
+
+"""+ ((createPhase1 ++ createPhase2).map{s =>
+      "execute immediate '"+ s.replaceAll("'", """\\'""") + " ';"
+  }.mkString("\n")) +"""
+EXCEPTION
+    WHEN OTHERS THEN
+      IF SQLCODE = -955 THEN
+        NULL; -- suppresses ORA-00955 exception
+      ELSE
+         RAISE;
+      END IF;
+END; """)
+    }
+
+    override def dropIfExistsPhase = {
+      //http://stackoverflow.com/questions/1799128/oracle-if-table-exists
+      Iterable(
+"""
+BEGIN
+"""+ ((dropPhase1 ++ dropPhase2).map{s =>
+"execute immediate '"+ s.replaceAll("'", """\\'""") + " ';"
+            }.mkString("\n")) +
+"""
+EXCEPTION
+   WHEN OTHERS THEN
+      IF SQLCODE = -942 THEN
+        NULL; -- suppresses ORA-00942 exception
+      ELSE
+         RAISE;
+      END IF;
+END;
+""")
+    }
+
     def createAutoIncSequences = columns.flatMap { case cb: ColumnDDLBuilder =>
       cb.createSequenceAndTrigger(table)
     }
@@ -170,7 +209,7 @@ trait OracleProfile extends JdbcProfile {
       cb.dropTriggerAndSequence(table)
     }
 
-    override protected def addForeignKey(fk: ForeignKey, sb: StringBuilder) {
+    override protected def addForeignKey(fk: ForeignKey, sb: StringBuilder): Unit = {
       sb append "constraint " append quoteIdentifier(fk.name) append " foreign key("
       addForeignKeyColumnList(fk.linearizedSourceColumns, sb, table.tableName)
       sb append ") references " append quoteIdentifier(fk.targetTable.tableName) append "("
@@ -203,7 +242,7 @@ trait OracleProfile extends JdbcProfile {
     var sequenceName: String = _
     var triggerName: String = _
 
-    override def appendColumn(sb: StringBuilder) {
+    override def appendColumn(sb: StringBuilder): Unit = {
       val qname = quoteIdentifier(column.name)
       sb append qname append ' '
       appendType(sb)
@@ -213,7 +252,7 @@ trait OracleProfile extends JdbcProfile {
       }
     }
 
-    override protected def appendOptions(sb: StringBuilder) {
+    override protected def appendOptions(sb: StringBuilder): Unit = {
       if(defaultLiteral ne null) sb append " DEFAULT " append defaultLiteral
       if(notNull) sb append " NOT NULL"
       if(primaryKey) sb append " PRIMARY KEY"

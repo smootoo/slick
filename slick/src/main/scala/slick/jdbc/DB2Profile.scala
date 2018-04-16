@@ -96,7 +96,7 @@ trait DB2Profile extends JdbcProfile {
       case _ => super.expr(c, skipParens)
     }
 
-    override protected def buildOrdering(n: Node, o: Ordering) {
+    override protected def buildOrdering(n: Node, o: Ordering): Unit = {
       /* DB2 does not have explicit NULLS FIST/LAST clauses. Nulls are
        * sorted after non-null values by default. */
       if(o.nulls.first && !o.direction.desc) {
@@ -138,10 +138,32 @@ trait DB2Profile extends JdbcProfile {
     //For compatibility with all versions of DB2 
     //http://stackoverflow.com/questions/3006999/sql-query-to-truncate-table-in-ibm-db2
     override def truncateTable = s"DELETE FROM ${quoteTableName(tableNode)}"
+
+    override def createIfNotExistsPhase = {
+      //
+      Iterable(
+        "begin\n"
+      + "declare continue handler for sqlstate '42710' begin end; \n"
+      + ((createPhase1 ++ createPhase2).map{s =>
+        "execute immediate '"+ s.replaceAll("'", """\\'""") + " ';"
+      }.mkString("\n"))
+      + "\nend")
+    }
+
+    override def dropIfExistsPhase = {
+      //
+      Iterable(
+        "begin\n"
+      + "declare continue handler for sqlstate '42704' begin end; \n"
+      + ((dropPhase1 ++ dropPhase2).map{s =>
+        "execute immediate '"+ s.replaceAll("'", """\\'""") + " ';"
+      }.mkString("\n"))
+      + "\nend")
+    }
   }
 
   class ColumnDDLBuilder(column: FieldSymbol) extends super.ColumnDDLBuilder(column) {
-    override def appendColumn(sb: StringBuilder) {
+    override def appendColumn(sb: StringBuilder): Unit = {
       val qname = quoteIdentifier(column.name)
       sb append qname append ' '
       appendType(sb)
