@@ -200,7 +200,7 @@ trait DB2Profile extends JdbcProfile {
         r.updateString(idx, v.toString)
       }
       override def valueToSQLLiteral(value: Instant) = {
-        s"'$value'"
+        s"'${value.toString}'"
       }
     }
 

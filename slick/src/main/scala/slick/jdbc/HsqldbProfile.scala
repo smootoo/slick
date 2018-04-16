@@ -138,7 +138,7 @@ trait HsqldbProfile extends JdbcProfile {
 
       override def getValue(r: ResultSet, idx: Int): LocalTime = {
         // Fixes an issue caused because Hsqldb outputs the time in a non-standard format
-        // not adding trailing zeros to the hours. For example: '2:14:41.421' instead of '02:14:41.421'
+        // not adding leading zeros to the hours. For example: '2:14:41.421' instead of '02:14:41.421'
         r.getString(idx) match {
           case null => null
           case isoTime if isoTime.indexOf(':') == 2 => LocalTime.parse(isoTime)

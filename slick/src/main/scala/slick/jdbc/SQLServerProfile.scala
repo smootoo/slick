@@ -302,10 +302,7 @@ trait SQLServerProfile extends JdbcProfile {
         }
       }
       override def valueToSQLLiteral(value: LocalTime) = {
-        value match {
-          case null => "NULL"
-          case _ => s"(convert(time(6), '$value'))"
-        }
+        s"(convert(time(6), '$value'))"
       }
     }
     class TimestampJdbcType extends super.TimestampJdbcType {
@@ -362,12 +359,7 @@ trait SQLServerProfile extends JdbcProfile {
         }
       }
       override def valueToSQLLiteral(value: Instant) = {
-        value match {
-          case null =>
-            "NULL"
-          case _ =>
-            s"(convert(datetimeoffset(6), '${serializeInstantValue(value)}'))"
-        }
+        s"(convert(datetimeoffset(6), '${serializeInstantValue(value)}'))"
       }
     }
     class OffsetDateTimeJdbcType extends super.OffsetDateTimeJdbcType {

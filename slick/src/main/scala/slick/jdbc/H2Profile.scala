@@ -128,6 +128,7 @@ trait H2Profile extends JdbcProfile {
       override def hasLiteralForm = true
     }
     override val instantType : InstantJdbcType = new InstantJdbcType {
+      // H2 doesn't use ISO-8601 format strings and so can't use Instant.parse and needs its own formatter
       val formatter = new DateTimeFormatterBuilder()
                       .append(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
                       .optionalStart()

@@ -376,23 +376,6 @@ trait OracleProfile extends JdbcProfile {
     // So, store them at UTC timestamps, otherwise the JDBC layer might attempt to map them
     // and with DST changes, there are some times which will be unrepresentable during the switchover
     class LocalDateTimeJdbcType extends super.LocalDateTimeJdbcType {
-//      private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS x")
-//      private[this] def serializeTime(v : LocalDateTime) : String = formatter.format(v.atOffset(ZoneOffset.UTC))
-//      //      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
-//      override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
-//      override def setValue(v: LocalDateTime, p: PreparedStatement, idx: Int) = {
-//        p.setObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(v.atOffset(ZoneOffset.UTC)), -101)
-//      }
-//      override def updateValue(v: LocalDateTime, r: ResultSet, idx: Int) = {
-//        r.updateObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(v.atOffset(ZoneOffset.UTC)), -101)
-//      }
-//      override def getValue(r: ResultSet, idx: Int): LocalDateTime = {
-//        r.getObject(idx) match {
-//          case null => null
-//          case timestamptz => LocalDateTime.from(TimestamptzConverter.timestamptzToOffsetDateTime(timestamptz))
-//
-//        }
-//      }
       override def valueToSQLLiteral(value: LocalDateTime) = {
         s"TO_TIMESTAMP(${super.valueToSQLLiteral(value)}, 'YYYY-MM-DD HH24:MI:SS.FF3')"
       }
@@ -427,7 +410,6 @@ trait OracleProfile extends JdbcProfile {
     class OffsetTimeJdbcType extends super.OffsetTimeJdbcType {
       private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS x")
       private[this] def serializeTime(v : OffsetTime) : String = formatter.format(v.atDate(LocalDate.ofEpochDay(0)))
-//      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
       override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
       override def setValue(v: OffsetTime, p: PreparedStatement, idx: Int) = {
         p.setObject(idx, TimestamptzConverter.offsetTimeToTimestamptz(v), -101)
@@ -447,7 +429,6 @@ trait OracleProfile extends JdbcProfile {
     class OffsetDateTimeJdbcType extends super.OffsetDateTimeJdbcType {
       private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS x")
       private[this] def serializeTime(v : OffsetDateTime) : String = formatter.format(v)
-//      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
       override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
       override def setValue(v: OffsetDateTime, p: PreparedStatement, idx: Int) = {
         p.setObject(idx, TimestamptzConverter.offsetDateTimeToTimestamptz(v), -101)
@@ -467,7 +448,6 @@ trait OracleProfile extends JdbcProfile {
     class ZonedDateTimeJdbcType extends super.ZonedDateTimeJdbcType {
       private[this] val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS VV")
       private[this] def serializeTime(v : ZonedDateTime) : String = formatter.format(v)
-//      override def sqlType = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
       override def sqlTypeName(sym: Option[FieldSymbol]) = "TIMESTAMP(6) WITH TIME ZONE"
       override def setValue(v: ZonedDateTime, p: PreparedStatement, idx: Int) = {
         p.setObject(idx, TimestamptzConverter.zonedDateTimeToTimestamptz(v), -101)
@@ -558,9 +538,6 @@ object OracleProfile extends OracleProfile {
 }
 
 
-/* The following code will be used when the native implementation of
-    java.time.OffsetDateTime, java.time.OffsetTime and java.time.ZonedDateTime
-    are natively implemented. */
 /**
   * Converts between {@link TIMESTAMPTZ} and java.time times and back.
   * Oracle jar not on path at compile time (but must be a run time)

@@ -9,11 +9,13 @@ There are two principles that have been applied in mapping the java.time types i
 That means that you get back the same value that was stored, irrespective of the configuration of the
 database or the JVM.
 
-2. It should be clear to you as a user of the database what those values are. This may be with an appropriate database type, if one is available. If not, a varchar with a "stringified" value will be used.
+2. It should be clear to you as a user of the database what those values are. This may be with an appropriate database type, if one is available. If not, a varchar with a string representation of the value will be used. Standard ISO representation will be used (e,g, 2007-12-03T10:15:30.00Z for an Instant) and as such the values are sortable and comparable.
 
 The different java.time types have important characteristics. E.g `Instant`s need to be continuous and always increasing,
 with a larger value being later on the timeline.
-The timestamp (without time zone) database type is handled different in different db backends (and jdbc implementations). Postgres, for example, stores timestamps as UTC and so they are approproriate to be the datatype for Instants. Depending on timezone configurations in the database backend and on the client JVM, DST may be applied
+
+Daylight savings times (DST) is where a lot of problems can occur. Without explicit offsets or timezones, then the times when the DST shifts take effect, can leave unrepresentable gaps.
+The timestamp (without time zone) database type is handled different in different db backends (and jdbc implementations). Postgres, for example, stores timestamps as UTC and so they are approproriate to be the datatype for Instants. For databases other than Postgres, depending on timezone configurations in the database backend and on the client JVM, DST may be applied
   to a timestamp without timezone.
 Where timestamps with time zone are supported by the db backend, then writing Instants as timestamps with timezone
 `UTC` or offset `+00:00` gives us the characteristics we need for an `Instant`.
