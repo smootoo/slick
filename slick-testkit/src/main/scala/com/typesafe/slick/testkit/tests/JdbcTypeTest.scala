@@ -124,11 +124,12 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     val rows = (1 to testValuesSize).map(i => (i, Some(dataCreateFn())))
     val updateValue = dataCreateFn()
     val insertValue = dataCreateFn()
+    val defaultValue = dataCreateFn()
 
     val tableName = "Data_" + values.headOption.getOrElse(dataCreateFn()).getClass.getSimpleName
     class DataTable(tag: Tag) extends Table[(Int, Option[T])](tag, tableName) {
       def id = column[Int]("ID", O.PrimaryKey)
-      def data = column[Option[T]]("DATA")
+      def data = column[Option[T]]("DATA", O Default Some(defaultValue))
       def * = (id, data)
     }
     val dateTable = TableQuery[DataTable]
@@ -157,6 +158,12 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
       db.run(seq(
         dateTable += (values.size + 1, None),
         dateTable.filter(_.id === values.size + 1).map(_.data).result.head.map(_ shouldBe None)
+      ))
+    }.flatMap { _ =>
+      // filter on a LiteralColumn value
+      db.run(seq(
+        dateTable += (values.size + 2, Some(defaultValue)),
+        dateTable.filter(_.data === LiteralColumn(defaultValue)).map(_.data).result.head.map(_ shouldBe Some(defaultValue))
       ))
     }.flatMap { _ =>
       ifCapF(jcap.mutable) {
