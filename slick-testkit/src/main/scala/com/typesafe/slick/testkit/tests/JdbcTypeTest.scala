@@ -300,7 +300,7 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
       () => randomLocalDateTime().toLocalTime
     )
 
-  def testInstant = 
+  def testInstant =
     roundTrip[Instant](
       List(LocalDateTime.parse("2018-03-25T01:37:40", formatter).toInstant(ZoneOffset.UTC),
         Instant.parse("2015-06-05T09:43:00Z"), // time has zero seconds and milliseconds
@@ -310,8 +310,8 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     )
 
   private def randomZoneOffset = {
-    // offset could be +-18 in java.time context, but postgres is stricter
-    val hours = random.nextInt(26)-13
+    // offset could be +-18 in java.time context, but postgres and oracle are stricter
+    val hours = random.nextInt(25)-12
     val mins = math.signum(hours) * random.nextInt(2) * 30
     ZoneOffset.ofHoursMinutes(hours, mins)
   }

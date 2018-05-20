@@ -335,7 +335,7 @@ trait SQLServerProfile extends JdbcProfile {
     }
     class TimestampJdbcType extends super.TimestampJdbcType {
       override def sqlTypeName(sym: Option[FieldSymbol]) = "DATETIME2(6)"
-      override def valueToSQLLiteral(value: Timestamp) = "(convert(datetime2, {ts '" + value + "'}))"
+      override def valueToSQLLiteral(value: Timestamp) = s"'$value'"
     }
     class LocalDateTimeJdbcType extends super.LocalDateTimeJdbcType {
       private[this] val formatter : DateTimeFormatter = {
