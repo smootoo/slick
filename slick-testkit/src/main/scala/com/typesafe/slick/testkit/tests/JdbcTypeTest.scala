@@ -215,20 +215,18 @@ class JdbcTypeTest extends AsyncTest[JdbcTestDB] {
     * For more information about the MsSQL issue: https://sourceforge.net/p/jtds/feature-requests/73/
     */
   private[this] def generateTestLocalDateTime() : LocalDateTime = {
-    // after JDK8, Instant.now uses a Clock that has greater that ms resolution, so add
-    // in some nano values to test round-tripping of nanos, even in JDK8
-    val now = Instant.now.plusNanos(123456)
+    val now = Instant.now
     val dbReadyInstant = if (tdb.confName.contains("jtds")) {
-      val offset = now.get(ChronoField.MILLI_OF_SECOND) % 10
-      now.plusMillis(-offset)
+      val offset = now.get(ChronoField.NANO_OF_SECOND) % 10000000
+      now.plusNanos(-offset)
     } else if (tdb.confName.contains("mysql")) {
-      // mysql has no subsecond component
+      // mysql has no subsecond resolution
       now.`with`(ChronoField.NANO_OF_SECOND, 0)
-    } else if (List("sqlite", "hsqldb").exists(tdb.confName.contains)) {
-      // sqlite and hsqlsb timestamps only have ms resolution
-      now.`with`(ChronoField.MILLI_OF_SECOND, now.get(ChronoField.MILLI_OF_SECOND))
     } else {
-      now
+      // after JDK8, Instant.now uses a Clock that has greater than millis resolution, most
+      // database timestamp implementations only have millis resolutions, so only
+      // roundtrip values which have no micro and nano parts
+      now.`with`(ChronoField.MILLI_OF_SECOND, now.get(ChronoField.MILLI_OF_SECOND))
     }
     LocalDateTime.ofInstant(dbReadyInstant, ZoneOffset.UTC)
   }
